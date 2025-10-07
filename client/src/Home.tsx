@@ -1,120 +1,241 @@
-import { Header } from "./header";
-import { useStackApp, useUser } from "@stackframe/react";
+import { Header } from "./components/header";
+import { useTranslation } from "react-i18next";
+import { MapContainer, TileLayer } from "react-leaflet";
+import type { LatLngTuple } from "leaflet";
+// import { Link } from "react-router-dom";
+import "./home.css";
 
 // Home page redesigned: cleaner hero, contextual message for authenticated users.
 export default function Home() {
-  const app = useStackApp();
-  const user = useUser();
+  const mapCenter: LatLngTuple = [16.8394054, 96.0167634];
+  const { t } = useTranslation();
+
+  const quickLinks = [
+    { href: "/", label: t("footer.links.home") },
+    { href: "/map", label: t("footer.links.map") },
+    { href: "#timeline", label: t("footer.links.timeline") },
+  ];
+  const supportLinks = [
+    {
+      href: "mailto:hello@myanmar-travel.explore",
+      label: t("footer.support.email"),
+    },
+    { href: "/help-center", label: t("footer.support.center") },
+  ];
 
   return (
-    <div className="min-h-screen flex flex-col bg-gradient-to-b from-slate-50 via-white to-white relative">
+    <div className="min-h-screen flex flex-col relative">
       <Header />
 
-      {/* Decorative subtle background elements */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 overflow-hidden"
-      >
-        <div className="absolute -top-32 -left-32 h-72 w-72 rounded-full bg-blue-100 blur-3xl opacity-40" />
-        <div className="absolute top-1/3 -right-24 h-72 w-72 rounded-full bg-indigo-100 blur-3xl opacity-40" />
-      </div>
+      <main className="container mx-auto px-4 lg:px-8 relative">
+        <div>
+          <div className="p-4 lg:p-8">
+            <header className="text-center my-12 lg:my-24">
+              <h1 className="text-4xl lg:text-6xl font-bold text-white">
+                Discover the Golden Land
+              </h1>
+              <p className="mt-4 text-lg text-gray-300">
+                Your adventure in Myanmar awaits
+              </p>
+            </header>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
+              <aside className="lg:sticky lg:top-32">
+                <div className="bg-white/5 backdrop-blur-md rounded-2xl p-6 border border-white/10 text-white shadow-lg">
+                  <h2 className="text-3xl font-bold mb-4 text-white">
+                    Explore the Map
+                  </h2>
+                  <div className="relative w-full h-[600px] bg-gray-900/50 rounded-lg overflow-hidden border border-white/10">
+                    <MapContainer
+                      center={mapCenter}
+                      zoom={5}
+                      style={{ height: "80vh", width: "100%" }}
+                    >
+                      <TileLayer
+                        attribution=""
+                        url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+                      />
+                    </MapContainer>
+                  </div>
+                  <p className="text-gray-400 mt-4 text-center text-sm">
+                    Hover over the markers to learn more about each destination.
+                  </p>
+                </div>
+              </aside>
 
-      <main className="flex-1 relative z-10">
-        <section className="mx-auto max-w-5xl px-4 sm:px-6 pt-16 pb-20">
-          <div className="max-w-3xl">
-            <h1 className="text-4xl sm:text-5xl font-semibold tracking-tight text-slate-800 leading-tight">
-              ASEAN Digital Awards 2026
-            </h1>
-            <p className="mt-4 text-lg text-slate-600 leading-relaxed">
-              Celebrating innovation, impact, and excellence in digital
-              solutions across Southeast Asia.{" "}
-              {user
-                ? "Explore your dashboard, submit entries, and track your progress."
-                : "Sign up to submit your digital solution and join a regional community of innovators."}
-            </p>
-            {!user && (
-              <div className="mt-8 flex flex-wrap gap-3">
-                <button
-                  onClick={() => window.location.assign("/handler/sign-up")}
-                  className="inline-flex items-center rounded-md bg-blue-600 px-5 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-blue-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1 transition-colors"
-                >
-                  Get Started
-                </button>
-                <button
-                  onClick={() => window.location.assign("/handler/sign-in")}
-                  className="inline-flex items-center rounded-md border border-slate-300 bg-white px-5 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1 transition-colors"
-                >
-                  Log In
-                </button>
-              </div>
-            )}
-            {user && (
-              <div className="mt-8 flex flex-wrap gap-3">
-                <a
-                  href="/landmark-map"
-                  className="inline-flex items-center rounded-md bg-blue-600 px-5 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-blue-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1 transition-colors"
-                >
-                  View Map
+              <main className="bg-white/5 backdrop-blur-md rounded-2xl p-6 border border-white/10 text-white shadow-lg lg:p-8">
+                <h2 className="text-3xl font-bold mb-6 text-white">
+                  A Glimpse into Myanmar's History
+                </h2>
+                <div className="space-y-6 text-gray-300 text-lg leading-relaxed">
+                  <p className="typing-text-long">
+                    Myanmar, formerly known as Burma, is a country rich in
+                    history and culture. It has been home to several ancient
+                    civilizations, with the Pyu city-states dating back to the
+                    2nd century BCE. The Bagan Empire, which flourished from the
+                    9th to the 13th centuries, left behind thousands of temples
+                    and pagodas that still stand today as a testament to its
+                    architectural prowess. The country later became a British
+                    colony in the 19th century, gaining independence in 1948.
+                    Myanmar has faced various political challenges, including
+                    military rule
+                  </p>
+                  <div className="typing-text typing-text-delay-1">
+                    <h3 className="font-semibold text-xl text-blue-400 inline-block">
+                      The Bagan Empire (849–1297)
+                    </h3>
+                    <p className="text-gray-400 mt-1 text-base">
+                      Famed for the thousands of temples in the Bagan
+                      Archaeological Zone.
+                    </p>
+                  </div>
+                  <div className="typing-text typing-text-delay-2">
+                    <h3 className="font-semibold text-xl text-purple-400 inline-block">
+                      Konbaung Dynasty (1752-1885)
+                    </h3>
+                    <p className="text-gray-400 mt-1 text-base">
+                      The last ruling dynasty, with its capital in the
+                      magnificent Mandalay.
+                    </p>
+                  </div>
+                  <div className="typing-text typing-text-delay-3">
+                    <h3 className="font-semibold text-xl text-teal-400 inline-block">
+                      British Colonail Era (1885-1948)
+                    </h3>
+                    <p className="text-gray-400 mt-1 text-base">
+                      A period of significant change, leaving a lasting
+                      architectural legacy.
+                    </p>
+                  </div>
+                </div>
+                <a href="/landmark-map" className="mt-12 w-full bg-blue-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-blue-700 transition duration-300 flex items-center justify-center text-lg">
+                  <span className="material-icons mr-2">explore</span> Start
+                  Your Journey
                 </a>
-                <button
-                  onClick={() => app.redirectToAccountSettings()}
-                  className="inline-flex items-center rounded-md border border-slate-300 bg-white px-5 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1 transition-colors"
-                >
-                  Manage Profile
-                </button>
-              </div>
-            )}
-          </div>
+              </main>
+            </div>
 
-          {/* Feature highlights */}
-          <div className="mt-16 grid gap-8 sm:grid-cols-2 lg:grid-cols-3">
-            {[
-              {
-                title: "Regional Recognition",
-                body: "Gain visibility across ASEAN for impactful digital products.",
-              },
-              {
-                title: "Innovation Focus",
-                body: "Showcase creativity in solving real-world challenges.",
-              },
-              {
-                title: "Collaboration",
-                body: "Connect with peers, mentors, and stakeholders.",
-              },
-              {
-                title: "Growth Path",
-                body: "Leverage exposure to scale your solution regionally.",
-              },
-              {
-                title: "User Ownership",
-                body: "Your account and data stay in your control.",
-              },
-              {
-                title: "Secure Platform",
-                body: "Modern authentication and privacy-first architecture.",
-              },
-            ].map((f) => (
-              <div
-                key={f.title}
-                className="group relative rounded-lg border border-slate-200 bg-white/60 backdrop-blur-sm p-5 shadow-sm transition hover:shadow-md"
-              >
-                <h3 className="text-sm font-semibold text-slate-800 mb-1">
-                  {f.title}
-                </h3>
-                <p className="text-sm text-slate-600 leading-relaxed">
-                  {f.body}
-                </p>
-                <div className="absolute inset-0 rounded-lg ring-0 ring-blue-500/0 group-hover:ring-2 group-hover:ring-blue-500/30 transition" />
+            {/* <div className="mt-16">
+              <h2 className="text-3xl font-bold text-white text-center mb-8">
+                Highlighted Locations
+              </h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div className="bg-white/5 rounded-2xl overflow-hidden group border border-white/10">
+                  <div className="relative h-60 overflow-hidden">
+                    <img
+                      alt="Maubin"
+                      className="w-full h-full object-cover transition-transform durations-500 group-hover:scale-110"
+                      src="./img/bagan.jpg"
+                    />
+                  </div>
+                  <div className="p-6">
+                    <h3 className="text-2xl font-bold text-white mb-2">
+                      Maubin
+                    </h3>
+                    <p className="text-gray-300 mb-4">
+                      A tranquil town in the Ayeyearwady Delta, known for it's
+                      scenic river views.
+                    </p>
+                    <Link
+                      className="inline-flex items-center bg-green-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-green-700 transition duration-300"
+                      to="/maubin/details"
+                    >
+                      <span className="material-icons mr-2">directions</span>{" "}
+                      Route
+                    </Link>
+                  </div>
+                </div>
+                <div className="bg-white/5 rounded-2xl overflow-hidden group border border-white/10">
+                  <div className="relative h-60 overflow-hidden">
+                    <img
+                      alt="taunggyi"
+                      className="w-full h-full object-cover transition-transform durations-500 group-hover:scale-110"
+                      src="./img/bagan.jpg"
+                    />
+                  </div>
+                  <div className="p-6">
+                    <h3 className="text-2xl font-bold text-white mb-2">
+                      Taunggyi
+                    </h3>
+                    <p className="text-gray-300 mb-4">
+                      The capital of Shan State, famous for it's vibrant hot air
+                      balloon festival.
+                    </p>
+                    <Link
+                      className="inline-flex items-center bg-green-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-green-700 transition duration-300"
+                      to="/taunggyi/details"
+                    >
+                      <span className="material-icons mr-2">directions</span>{" "}
+                      Route
+                    </Link>
+                  </div>
+                </div>
               </div>
-            ))}
+            </div> */}
           </div>
-        </section>
+        </div>
       </main>
 
-      <footer className="relative z-10 border-t bg-white/70 backdrop-blur py-8 mt-auto">
-        <div className="mx-auto max-w-5xl px-4 sm:px-6 text-center text-xs text-slate-500">
-          © {new Date().getFullYear()} ASEAN Digital Awards. All rights
-          reserved.
+      <footer className="relative mt-auto border-t border-white/10 bg-slate-950/90 backdrop-blur">
+        <div className="absolute inset-x-0 -top-px h-px bg-gradient-to-r from-transparent via-white/40 to-transparent" />
+        <div className="mx-auto max-w-6xl px-4 sm:px-8 py-12 text-slate-200">
+          <div className="grid gap-10 md:grid-cols-[1.3fr_1fr_1fr]">
+            <div className="space-y-3">
+              <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.3em] text-slate-300/80">
+                <span className="size-1 rounded-full bg-emerald-400 animate-pulse" />
+                {t("footer.badge")}
+              </span>
+              <h3 className="text-2xl font-semibold">{t("footer.title")}</h3>
+              <p className="text-sm text-slate-300/80">{t("footer.tagline")}</p>
+            </div>
+
+            <div>
+              <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-300/90">
+                {t("footer.linksTitle")}
+              </h4>
+              <ul className="mt-4 space-y-3 text-sm">
+                {quickLinks.map((link) => (
+                  <li key={link.href}>
+                    <a
+                      href={link.href}
+                      className="inline-flex items-center gap-2 text-slate-300 transition hover:text-emerald-300"
+                    >
+                      <span className="h-px w-5 bg-emerald-400/60" />
+                      {link.label}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div>
+              <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-300/90">
+                {t("footer.supportTitle")}
+              </h4>
+              <ul className="mt-4 space-y-3 text-sm">
+                {supportLinks.map((link) => (
+                  <li key={link.href}>
+                    <a
+                      href={link.href}
+                      className="inline-flex items-center gap-2 text-slate-300 transition hover:text-emerald-300"
+                    >
+                      <span className="size-2 rounded-full border border-emerald-400/60" />
+                      {link.label}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+
+          <div className="mt-12 flex flex-col gap-4 border-t border-white/10 pt-6 text-xs text-slate-400 sm:flex-row sm:items-center sm:justify-between">
+            <span>
+              © {new Date().getFullYear()} {t("footer.copyright")}
+            </span>
+            <span className="flex items-center gap-2 text-slate-400/80">
+              <span className="size-2 rounded-full bg-emerald-400/80" />
+              {t("footer.status")}
+            </span>
+          </div>
         </div>
       </footer>
     </div>
