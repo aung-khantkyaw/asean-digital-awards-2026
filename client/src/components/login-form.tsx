@@ -10,17 +10,18 @@ import {
   FieldLabel,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { useAuth } from "@/hooks/useAuth";
+import { login as loginService } from "@/services/authService";
 
 export function LoginForm({
   className,
   ...props
 }: React.ComponentProps<"form">) {
   const navigate = useNavigate();
+  const auth = useAuth();
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
   const [loading, setLoading] = React.useState(false);
-
-  const apiUrl = import.meta.env.VITE_API_URL || "";
 
   function handleForgotPassword() {
     toast.info(
@@ -36,41 +37,15 @@ export function LoginForm({
       return;
     }
 
-    if (!apiUrl) {
-      toast.error("API URL is not configured. Please try again later.");
-      return;
-    }
-
     setLoading(true);
 
     try {
-      const response = await fetch(`${apiUrl}/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
-      });
+      const response = await loginService({ email, password });
 
-      const data = await response.json();
-
-      if (!response.ok || !data.is_success) {
-        const message = data?.msg || "Invalid email or password.";
-        toast.error(message);
-        return;
-      }
-
-      const userName = data?.user?.username ?? "Explorer";
+      const userName = response?.user?.username ?? "Explorer";
       toast.success(`Welcome back, ${userName}!`);
 
-      if (data.access_token) {
-        localStorage.setItem("access_token", data.access_token);
-      }
-      if (data.user) {
-        localStorage.setItem("user", JSON.stringify(data.user));
-      }
-
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(new Event("user-auth-changed"));
-      }
+      auth.login(response.access_token ?? null, response.user ?? null);
 
       navigate("/", { replace: true });
     } catch (error) {

@@ -182,6 +182,142 @@ def prepare_image_urls_for_db(value):
 
     return [str(value).strip()]
 
+
+def coerce_multilingual_payload(data, field, legacy_keys=None):
+    """Build a JSON object with "mm" and "en" keys from mixed payloads."""
+    legacy_keys = legacy_keys or (None, None)
+    raw = data.get(field)
+
+    mm_value = None
+    en_value = None
+
+    if isinstance(raw, dict):
+        mm_value = raw.get("mm") or raw.get("my") or raw.get("mm_MM")
+        en_value = raw.get("en")
+
+    alt_mm_keys = [f"{field}_mm", f"{field}_my", f"{field}_mm_MM"]
+    if legacy_keys[0]:
+        alt_mm_keys.append(legacy_keys[0])
+    if field == "name":
+        alt_mm_keys.append("burmese_name")
+
+    alt_en_keys = [f"{field}_en"]
+    if legacy_keys[1]:
+        alt_en_keys.append(legacy_keys[1])
+    if field == "name":
+        alt_en_keys.append("english_name")
+
+    if not mm_value:
+        for key in alt_mm_keys:
+            if key and isinstance(data.get(key), str) and data[key].strip():
+                mm_value = data[key].strip()
+                break
+
+    if not en_value:
+        for key in alt_en_keys:
+            if key and isinstance(data.get(key), str) and data[key].strip():
+                en_value = data[key].strip()
+                break
+
+    payload = {}
+    if mm_value:
+        payload["mm"] = mm_value
+    if en_value:
+        payload["en"] = en_value
+
+    return payload or None
+
+
+def normalize_json_field(value):
+    """Ensure optional JSONB fields are stored with consistent structure."""
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        return {k: v for k, v in value.items() if v not in (None, "")}
+    if isinstance(value, str):
+        stripped = value.strip()
+        return {"en": stripped} if stripped else None
+    return None
+
+
+def has_jsonb_payload(data, field, legacy_keys=None):
+    """Detect whether the request provides data intended for a JSONB column."""
+    legacy_keys = [key for key in (legacy_keys or []) if key]
+    variants = {
+        field,
+        f"{field}_mm",
+        f"{field}_my",
+        f"{field}_en",
+        f"{field}_mm_MM",
+    }
+    for legacy_key in legacy_keys:
+        variants.update({
+            legacy_key,
+            f"{legacy_key}_mm",
+            f"{legacy_key}_my",
+            f"{legacy_key}_en",
+            f"{legacy_key}_mm_MM",
+        })
+    return any(key in data for key in variants)
+
+
+def build_name_response(name_obj):
+    """Construct a response payload for multilingual name objects with legacy aliases."""
+    if isinstance(name_obj, dict):
+        mm_value = name_obj.get("mm")
+        en_value = name_obj.get("en")
+    else:
+        mm_value = None
+        en_value = None
+
+    return {
+        "name_mm": mm_value,
+        "name_en": en_value,
+    }
+
+
+def build_address_response(address_obj):
+    """Construct a response payload for multilingual address objects."""
+    if isinstance(address_obj, dict):
+        mm_value = address_obj.get("mm")
+        en_value = address_obj.get("en")
+        return {
+            "address_mm": mm_value,
+            "address_en": en_value,
+        }
+    return {
+        "address_mm": None,
+        "address_en": address_obj if isinstance(address_obj, str) else None,
+    }
+
+
+def build_description_response(description_obj):
+    """Construct a response payload for multilingual description objects."""
+    if isinstance(description_obj, dict):
+        mm_value = description_obj.get("mm")
+        en_value = description_obj.get("en")
+        return {
+            "description_mm": mm_value,
+            "description_en": en_value,
+        }
+    return {
+        "description_mm": None,
+        "description_en": description_obj if isinstance(description_obj, str) else None,
+    }
+
+
+def coerce_boolean(value):
+    """Convert string representations of booleans into actual bool values when possible."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in ('true', '1', 'yes', 'on'):
+            return True
+        if lowered in ('false', '0', 'no', 'off'):
+            return False
+    return value
+
 def parse_point_geometry(payload):
     """Extract a POINT geometry from the payload supporting GeoJSON, WKT, or lon/lat fields."""
     if not isinstance(payload, dict):
@@ -306,12 +442,12 @@ def get_all_cities():
             SELECT 
                 id,
                 user_id,
-                burmese_name,
-                english_name,
+                name,
                 address,
                 image_urls,
                 description,
-                ST_AsText(geom) AS geometry
+                ST_AsText(geom) AS geometry,
+                is_active
             FROM cities;
         """)
         return cur.fetchall()
@@ -327,12 +463,12 @@ def get_all_cities_by_user(user_id):
             SELECT 
                 id,
                 user_id,
-                burmese_name,
-                english_name,
+                name,
                 address,
                 image_urls,
                 description,
-                ST_AsText(geom) AS geometry
+                ST_AsText(geom) AS geometry,
+                is_active
             FROM cities WHERE user_id = %s;
         """, (str(user_id),))
         return cur.fetchall()
@@ -348,12 +484,12 @@ def get_city_by_id(city_id):
             SELECT 
                 id,
                 user_id,
-                burmese_name,
-                english_name,
+                name,
                 address,
                 image_urls,
                 description,
-                ST_AsText(geom) AS geometry
+                ST_AsText(geom) AS geometry,
+                is_active
             FROM cities WHERE id = %s;
         """, (str(city_id),))
         return cur.fetchone()
@@ -371,8 +507,7 @@ def get_all_locations():
                 id,
                 city_id,
                 user_id,
-                burmese_name,
-                english_name,
+                name,
                 address,
                 image_urls,
                 description,
@@ -380,7 +515,9 @@ def get_all_locations():
                 ST_AsText(geom) AS geometry
             FROM locations;
         """)
-        return cur.fetchall()
+        result = cur.fetchall()
+        print(result)
+        return result
     finally:
         cur.close()
         conn.close()
@@ -394,8 +531,7 @@ def get_locations_by_user(user_id):
                 id,
                 city_id,
                 user_id,
-                burmese_name,
-                english_name,
+                name,
                 address,
                 image_urls,
                 description,
@@ -418,8 +554,7 @@ def get_locations_by_city(city_id):
                 id,
                 city_id,
                 user_id,
-                burmese_name,
-                english_name,
+                name,
                 address,
                 image_urls,
                 description,
@@ -443,8 +578,7 @@ def get_all_roads():
                 id,
                 city_id,
                 user_id,
-                burmese_name,
-                english_name,
+                name,
                 road_type,
                 is_oneway,
                 length_m,
@@ -465,8 +599,7 @@ def get_roads_by_user(user_id):
                 id,
                 city_id,
                 user_id,
-                burmese_name,
-                english_name,
+                name,
                 road_type,
                 is_oneway,
                 length_m,
@@ -488,8 +621,7 @@ def get_roads_by_city(city_id):
                 id,
                 city_id,
                 user_id,
-                burmese_name,
-                english_name,
+                name,
                 road_type,
                 is_oneway,
                 length_m,
@@ -734,19 +866,7 @@ def get_cities():
     else:
         cities = get_all_cities()
 
-    cities_list = []
-    for city in cities:
-        cities_list.append({
-            "id": city["id"],
-            "user_id": city["user_id"],
-            "burmese_name": city["burmese_name"],
-            "english_name": city["english_name"],
-            "address": city["address"],
-            "image_urls": city["image_urls"],
-            "description": city["description"],
-            "geometry": city["geometry"]
-        })
-
+    cities_list = [serialize_city_record(city) for city in cities]
     return jsonify({"is_success": True, "data": cities_list}), 200
 
 @app.route('/cities/<uuid:city_id>', methods=['GET'])
@@ -755,18 +875,7 @@ def get_city(city_id):
     if not city:
         return jsonify({"is_success": False, "msg": "City not found"}), 404
 
-    city_data = {
-        "id": str(city["id"]),
-        "user_id": str(city["user_id"]) if city["user_id"] is not None else None,
-        "burmese_name": city["burmese_name"],
-        "english_name": city["english_name"],
-        "address": city["address"],
-        "image_urls": city["image_urls"],
-        "description": city["description"],
-        "geometry": city["geometry"]
-    }
-
-    return jsonify({"is_success": True, "data": city_data}), 200
+    return jsonify({"is_success": True, "data": serialize_city_record(city)}), 200
 
 @app.route('/locations', methods=['GET'])
 def get_locations():
@@ -779,21 +888,7 @@ def get_locations():
     else:
         locations = get_all_locations()
 
-    locations_list = []
-    for loc in locations:
-        locations_list.append({
-            "id": loc["id"],
-            "user_id": loc["user_id"],
-            "city_id": loc["city_id"],
-            "burmese_name": loc["burmese_name"],
-            "english_name": loc["english_name"],
-            "address": loc["address"],
-            "image_urls": loc["image_urls"],
-            "description": loc["description"],
-            "location_type": loc["location_type"],
-            "geometry": loc["geometry"]
-        })
-
+    locations_list = [serialize_location_record(loc) for loc in locations]
     return jsonify({"is_success": True, "data": locations_list}), 200
 
 @app.route('/roads', methods=['GET'])
@@ -807,58 +902,74 @@ def get_roads():
     else:
         roads = get_all_roads()
 
-    roads_list = []
-    for road in roads:
-        roads_list.append({
-            "id": road["id"],
-            "user_id": road["user_id"],
-            "city_id": road["city_id"],
-            "burmese_name": road["burmese_name"],
-            "english_name": road["english_name"],
-            "road_type": road["road_type"],
-            "is_oneway": road["is_oneway"],
-            "length_m": road["length_m"],
-            "geometry": road["geometry"]
-        })
-
+    roads_list = [serialize_road_record(road) for road in roads]
     return jsonify({"is_success": True, "data": roads_list}), 200
 
 
+def ensure_mapping(record):
+    """Return a plain dict for serialization helpers."""
+    if record is None:
+        return {}
+    if isinstance(record, dict):
+        return record
+    if hasattr(record, "keys"):
+        return {key: record[key] for key in record.keys()}
+    try:
+        return dict(record)
+    except Exception:
+        return {}
+
+
 def serialize_city_record(city):
+    city = ensure_mapping(city)
+    name_obj = city.get("name")
+    address_obj = city.get("address")
+    description_obj = city.get("description")
+    name_payload = build_name_response(name_obj)
+    address_payload = build_address_response(address_obj)
+    description_payload = build_description_response(description_obj)
     return {
         "id": str(city["id"]),
         "user_id": str(city["user_id"]) if city["user_id"] is not None else None,
-        "burmese_name": city["burmese_name"],
-        "english_name": city["english_name"],
-        "address": city["address"],
+        **name_payload,
+        **address_payload,
         "image_urls": city["image_urls"],
-        "description": city["description"],
-        "geometry": city["geometry"]
+        **description_payload,
+        "geometry": city["geometry"],
+        "is_active": city.get("is_active")
     }
 
 
 def serialize_location_record(location):
+    location = ensure_mapping(location)
+    name_obj = location.get("name")
+    address_obj = location.get("address")
+    description_obj = location.get("description")
+    name_payload = build_name_response(name_obj)
+    address_payload = build_address_response(address_obj)
+    description_payload = build_description_response(description_obj)
     return {
         "id": str(location["id"]),
         "city_id": str(location["city_id"]) if location["city_id"] is not None else None,
         "user_id": str(location["user_id"]) if location["user_id"] is not None else None,
-        "burmese_name": location["burmese_name"],
-        "english_name": location["english_name"],
-        "address": location["address"],
+        **name_payload,
+        **address_payload,
         "image_urls": location["image_urls"],
-        "description": location["description"],
+        **description_payload,
         "location_type": location["location_type"],
         "geometry": location["geometry"]
     }
 
 
 def serialize_road_record(road):
+    road = ensure_mapping(road)
+    name_obj = road.get("name")
+    name_payload = build_name_response(name_obj)
     return {
         "id": str(road["id"]),
         "city_id": str(road["city_id"]) if road["city_id"] is not None else None,
         "user_id": str(road["user_id"]) if road["user_id"] is not None else None,
-        "burmese_name": road["burmese_name"],
-        "english_name": road["english_name"],
+        **name_payload,
         "road_type": road["road_type"],
         "is_oneway": road["is_oneway"],
         "length_m": road["length_m"],
@@ -908,11 +1019,24 @@ def admin_list_cities():
 @admin_required
 def admin_create_city():
     data, is_multipart = extract_normalized_payload()
-    english_name = data.get('english_name')
-    if not english_name:
-        return jsonify({"is_success": False, "msg": "english_name is required"}), 400
+    name_payload = coerce_multilingual_payload(data, 'name', legacy_keys=('burmese_name', 'english_name'))
+    if not name_payload:
+        name_payload = normalize_json_field(data.get('name'))
+    if not name_payload:
+        return jsonify({"is_success": False, "msg": "At least one of name_mm or name_en is required"}), 400
+
+    address_payload = coerce_multilingual_payload(data, 'address', legacy_keys=('burmese_address', 'english_address'))
+    if not address_payload and 'address' in data:
+        address_payload = normalize_json_field(data.get('address'))
+
+    description_payload = coerce_multilingual_payload(data, 'description', legacy_keys=('burmese_description', 'english_description'))
+    if not description_payload and 'description' in data:
+        description_payload = normalize_json_field(data.get('description'))
 
     geometry_wkt = parse_point_geometry(data)
+    if not geometry_wkt:
+        return jsonify({"is_success": False, "msg": "Valid geometry is required"}), 400
+
     image_urls_value = prepare_image_urls_for_db(data.get('image_urls'))
 
     if is_multipart:
@@ -924,31 +1048,32 @@ def admin_create_city():
             if uploaded_urls:
                 image_urls_value = (image_urls_value or []) + uploaded_urls
 
+    is_active_value = coerce_boolean(data.get('is_active'))
+
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
     try:
-        geom_clause = "ST_GeogFromText(%s)" if geometry_wkt else "%s"
         cur.execute(
             f"""
-                INSERT INTO cities (user_id, burmese_name, english_name, address, description, image_urls, geom)
-                VALUES (%s, %s, %s, %s, %s, %s, {geom_clause})
+                INSERT INTO cities (user_id, name, address, description, image_urls, geom, is_active)
+                VALUES (%s, %s, %s, %s, %s, ST_GeogFromText(%s), %s)
                 RETURNING id,
                           user_id,
-                          burmese_name,
-                          english_name,
+                          name,
                           address,
                           description,
                           image_urls,
-                          ST_AsText(geom) AS geometry;
+                          ST_AsText(geom) AS geometry,
+                          is_active;
             """,
             (
                 data.get('user_id'),
-                data.get('burmese_name'),
-                english_name,
-                data.get('address'),
-                data.get('description'),
+                psycopg2.extras.Json(name_payload),
+                psycopg2.extras.Json(address_payload) if address_payload is not None else None,
+                psycopg2.extras.Json(description_payload) if description_payload is not None else None,
                 image_urls_value,
-                geometry_wkt if geometry_wkt else None,
+                geometry_wkt,
+                is_active_value,
             ),
         )
         conn.commit()
@@ -971,10 +1096,38 @@ def admin_update_city(city_id):
     updates = []
     params = []
 
-    for field in ['user_id', 'burmese_name', 'english_name', 'address', 'description']:
-        if field in data:
-            updates.append(f"{field} = %s")
-            params.append(data.get(field))
+    if 'user_id' in data:
+        updates.append("user_id = %s")
+        params.append(data.get('user_id'))
+
+    if has_jsonb_payload(data, 'name', legacy_keys=('burmese_name', 'english_name')):
+        if data.get('name') is None and data.get('burmese_name') is None and data.get('english_name') is None and not any(data.get(key) for key in ('name_mm', 'name_en', 'name_my', 'name_mm_MM')):
+            return jsonify({"is_success": False, "msg": "City name cannot be empty"}), 400
+        name_payload = coerce_multilingual_payload(data, 'name', legacy_keys=('burmese_name', 'english_name'))
+        if not name_payload:
+            name_payload = normalize_json_field(data.get('name'))
+        if not name_payload:
+            return jsonify({"is_success": False, "msg": "City name cannot be empty"}), 400
+        updates.append("name = %s")
+        params.append(psycopg2.extras.Json(name_payload))
+
+    if has_jsonb_payload(data, 'address', legacy_keys=('burmese_address', 'english_address')):
+        address_payload = None
+        if data.get('address') is not None or any(data.get(key) for key in ('address_mm', 'address_en', 'address_my', 'address_mm_MM', 'burmese_address', 'english_address')):
+            address_payload = coerce_multilingual_payload(data, 'address', legacy_keys=('burmese_address', 'english_address'))
+            if not address_payload:
+                address_payload = normalize_json_field(data.get('address'))
+        updates.append("address = %s")
+        params.append(psycopg2.extras.Json(address_payload) if address_payload is not None else None)
+
+    if has_jsonb_payload(data, 'description', legacy_keys=('burmese_description', 'english_description')):
+        description_payload = None
+        if data.get('description') is not None or any(data.get(key) for key in ('description_mm', 'description_en', 'description_my', 'description_mm_MM', 'burmese_description', 'english_description')):
+            description_payload = coerce_multilingual_payload(data, 'description', legacy_keys=('burmese_description', 'english_description'))
+            if not description_payload:
+                description_payload = normalize_json_field(data.get('description'))
+        updates.append("description = %s")
+        params.append(psycopg2.extras.Json(description_payload) if description_payload is not None else None)
 
     image_urls_present = 'image_urls' in data
     image_urls_value = prepare_image_urls_for_db(data.get('image_urls')) if image_urls_present else None
@@ -1002,6 +1155,11 @@ def admin_update_city(city_id):
         updates.append("geom = %s")
         params.append(None)
 
+    if 'is_active' in data:
+        is_active_value = coerce_boolean(data.get('is_active'))
+        updates.append("is_active = %s")
+        params.append(is_active_value)
+
     if not updates:
         return jsonify({"is_success": False, "msg": "No valid fields provided"}), 400
 
@@ -1011,7 +1169,7 @@ def admin_update_city(city_id):
     cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
     try:
         update_clause = ", ".join(updates)
-        cur.execute(f"UPDATE cities SET {update_clause} WHERE id = %s RETURNING id, user_id, burmese_name, english_name, address, description, image_urls, ST_AsText(geom) AS geometry;", tuple(params))
+        cur.execute(f"UPDATE cities SET {update_clause} WHERE id = %s RETURNING id, user_id, name, address, description, image_urls, ST_AsText(geom) AS geometry, is_active;", tuple(params))
         updated = cur.fetchone()
         if not updated:
             return jsonify({"is_success": False, "msg": "City not found"}), 404
@@ -1065,12 +1223,23 @@ def admin_list_locations():
 @admin_required
 def admin_create_location():
     data, is_multipart = extract_normalized_payload()
-    english_name = data.get('english_name')
+    name_payload = coerce_multilingual_payload(data, 'name', legacy_keys=('burmese_name', 'english_name'))
+    if not name_payload:
+        name_payload = normalize_json_field(data.get('name'))
+    if not name_payload:
+        return jsonify({"is_success": False, "msg": "At least one of name_mm or name_en is required"}), 400
 
-    if not english_name and not data.get('burmese_name'):
-        return jsonify({"is_success": False, "msg": "At least one of english_name or burmese_name is required"}), 400
+    address_payload = coerce_multilingual_payload(data, 'address', legacy_keys=('burmese_address', 'english_address'))
+    if not address_payload and 'address' in data:
+        address_payload = normalize_json_field(data.get('address'))
+
+    description_payload = coerce_multilingual_payload(data, 'description', legacy_keys=('burmese_description', 'english_description'))
+    if not description_payload and 'description' in data:
+        description_payload = normalize_json_field(data.get('description'))
 
     geometry_wkt = parse_point_geometry(data)
+    if not geometry_wkt:
+        return jsonify({"is_success": False, "msg": "Valid geometry is required"}), 400
     image_urls_value = prepare_image_urls_for_db(data.get('image_urls'))
 
     if is_multipart:
@@ -1085,16 +1254,14 @@ def admin_create_location():
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
     try:
-        geom_clause = "ST_GeogFromText(%s)" if geometry_wkt else "%s"
         cur.execute(
             f"""
-                INSERT INTO locations (city_id, user_id, burmese_name, english_name, address, description, image_urls, location_type, geom)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, {geom_clause})
+                INSERT INTO locations (city_id, user_id, name, address, description, image_urls, location_type, geom)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, ST_GeogFromText(%s))
                 RETURNING id,
                           city_id,
                           user_id,
-                          burmese_name,
-                          english_name,
+                          name,
                           address,
                           description,
                           image_urls,
@@ -1104,13 +1271,12 @@ def admin_create_location():
             (
                 data.get('city_id'),
                 data.get('user_id'),
-                data.get('burmese_name'),
-                english_name,
-                data.get('address'),
-                data.get('description'),
+                psycopg2.extras.Json(name_payload),
+                psycopg2.extras.Json(address_payload) if address_payload is not None else None,
+                psycopg2.extras.Json(description_payload) if description_payload is not None else None,
                 image_urls_value,
                 data.get('location_type'),
-                geometry_wkt if geometry_wkt else None,
+                geometry_wkt,
             ),
         )
         conn.commit()
@@ -1133,10 +1299,39 @@ def admin_update_location(location_id):
     updates = []
     params = []
 
-    for field in ['city_id', 'user_id', 'burmese_name', 'english_name', 'address', 'description', 'location_type']:
+    for field in ['city_id', 'user_id', 'location_type']:
         if field in data:
             updates.append(f"{field} = %s")
             params.append(data.get(field))
+
+    if has_jsonb_payload(data, 'name', legacy_keys=('burmese_name', 'english_name')):
+        if data.get('name') is None and data.get('burmese_name') is None and data.get('english_name') is None and not any(data.get(key) for key in ('name_mm', 'name_en', 'name_my', 'name_mm_MM')):
+            return jsonify({"is_success": False, "msg": "Location name cannot be empty"}), 400
+        name_payload = coerce_multilingual_payload(data, 'name', legacy_keys=('burmese_name', 'english_name'))
+        if not name_payload:
+            name_payload = normalize_json_field(data.get('name'))
+        if not name_payload:
+            return jsonify({"is_success": False, "msg": "Location name cannot be empty"}), 400
+        updates.append("name = %s")
+        params.append(psycopg2.extras.Json(name_payload))
+
+    if has_jsonb_payload(data, 'address', legacy_keys=('burmese_address', 'english_address')):
+        address_payload = None
+        if data.get('address') is not None or any(data.get(key) for key in ('address_mm', 'address_en', 'address_my', 'address_mm_MM', 'burmese_address', 'english_address')):
+            address_payload = coerce_multilingual_payload(data, 'address', legacy_keys=('burmese_address', 'english_address'))
+            if not address_payload:
+                address_payload = normalize_json_field(data.get('address'))
+        updates.append("address = %s")
+        params.append(psycopg2.extras.Json(address_payload) if address_payload is not None else None)
+
+    if has_jsonb_payload(data, 'description', legacy_keys=('burmese_description', 'english_description')):
+        description_payload = None
+        if data.get('description') is not None or any(data.get(key) for key in ('description_mm', 'description_en', 'description_my', 'description_mm_MM', 'burmese_description', 'english_description')):
+            description_payload = coerce_multilingual_payload(data, 'description', legacy_keys=('burmese_description', 'english_description'))
+            if not description_payload:
+                description_payload = normalize_json_field(data.get('description'))
+        updates.append("description = %s")
+        params.append(psycopg2.extras.Json(description_payload) if description_payload is not None else None)
 
     image_urls_present = 'image_urls' in data
     image_urls_value = prepare_image_urls_for_db(data.get('image_urls')) if image_urls_present else None
@@ -1173,7 +1368,7 @@ def admin_update_location(location_id):
     cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
     try:
         update_clause = ", ".join(updates)
-        cur.execute(f"UPDATE locations SET {update_clause} WHERE id = %s RETURNING id, city_id, user_id, burmese_name, english_name, address, description, image_urls, location_type, ST_AsText(geom) AS geometry;", tuple(params))
+        cur.execute(f"UPDATE locations SET {update_clause} WHERE id = %s RETURNING id, city_id, user_id, name, address, description, image_urls, location_type, ST_AsText(geom) AS geometry;", tuple(params))
         updated = cur.fetchone()
         if not updated:
             return jsonify({"is_success": False, "msg": "Location not found"}), 404
@@ -1227,7 +1422,12 @@ def admin_list_roads():
 @admin_required
 def admin_create_road():
     data = request.get_json() or {}
-    english_name = data.get('english_name')
+
+    name_payload = coerce_multilingual_payload(data, 'name', legacy_keys=('burmese_name', 'english_name'))
+    if not name_payload:
+        name_payload = normalize_json_field(data.get('name'))
+    if not name_payload:
+        return jsonify({"is_success": False, "msg": "At least one of name_mm or name_en is required"}), 400
 
     raw_coords = parse_linestring_coordinates(data.get('coordinates'))
     if len(raw_coords) < 2:
@@ -1235,6 +1435,8 @@ def admin_create_road():
 
     geometry_wkt = build_linestring_wkt(raw_coords)
     segment_lengths = compute_segment_lengths(raw_coords)
+
+    is_oneway_value = coerce_boolean(data.get('is_oneway', False))
 
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
@@ -1244,8 +1446,7 @@ def admin_create_road():
                 INSERT INTO roads (
                     city_id,
                     user_id,
-                    burmese_name,
-                    english_name,
+                    name,
                     road_type,
                     is_oneway,
                     length_m,
@@ -1255,8 +1456,7 @@ def admin_create_road():
                 RETURNING id,
                           city_id,
                           user_id,
-                          burmese_name,
-                          english_name,
+                          name,
                           road_type,
                           is_oneway,
                           length_m,
@@ -1265,10 +1465,9 @@ def admin_create_road():
             (
                 data.get('city_id'),
                 data.get('user_id'),
-                data.get('burmese_name'),
-                english_name,
+                psycopg2.extras.Json(name_payload),
                 data.get('road_type'),
-                data.get('is_oneway', False),
+                is_oneway_value,
                 segment_lengths,
                 geometry_wkt,
             ),
@@ -1294,10 +1493,22 @@ def admin_update_road(road_id):
     updates = []
     params = []
 
-    for field in ['city_id', 'user_id', 'burmese_name', 'english_name', 'road_type', 'is_oneway']:
+    for field in ['city_id', 'user_id', 'road_type', 'is_oneway']:
         if field in data:
             updates.append(f"{field} = %s")
-            params.append(data.get(field))
+            value = coerce_boolean(data.get(field)) if field == 'is_oneway' else data.get(field)
+            params.append(value)
+
+    if has_jsonb_payload(data, 'name', legacy_keys=('burmese_name', 'english_name')):
+        if data.get('name') is None and data.get('burmese_name') is None and data.get('english_name') is None and not any(data.get(key) for key in ('name_mm', 'name_en', 'name_my', 'name_mm_MM')):
+            return jsonify({"is_success": False, "msg": "Road name cannot be empty"}), 400
+        name_payload = coerce_multilingual_payload(data, 'name', legacy_keys=('burmese_name', 'english_name'))
+        if not name_payload:
+            name_payload = normalize_json_field(data.get('name'))
+        if not name_payload:
+            return jsonify({"is_success": False, "msg": "Road name cannot be empty"}), 400
+        updates.append("name = %s")
+        params.append(psycopg2.extras.Json(name_payload))
 
     coords = parse_linestring_coordinates(data.get('coordinates')) if 'coordinates' in data else []
     lengths_override = data.get('length_m')
@@ -1321,7 +1532,7 @@ def admin_update_road(road_id):
     cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
     try:
         update_clause = ", ".join(updates)
-        cur.execute(f"UPDATE roads SET {update_clause} WHERE id = %s RETURNING id, city_id, user_id, burmese_name, english_name, road_type, is_oneway, length_m, ST_AsText(geom) AS geometry;", tuple(params))
+        cur.execute(f"UPDATE roads SET {update_clause} WHERE id = %s RETURNING id, city_id, user_id, name, road_type, is_oneway, length_m, ST_AsText(geom) AS geometry;", tuple(params))
         updated = cur.fetchone()
         if not updated:
             return jsonify({"is_success": False, "msg": "Road not found"}), 404
@@ -1421,59 +1632,60 @@ def plan_route():
     cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
     try:
         # Process road segments
+        user_segment_labels = {
+            'user_to_road': {
+                'mm': 'စတင်သည့်နေရာမှအနီးဆုံးသတ်မှတ်နေရာသို့',
+                'en': 'From Start Location to Nearest Defined Location'
+            },
+            'road_to_user': {
+                'mm': 'အနီးဆုံးသတ်မှတ်နေရာမှပြီးဆုံးနေရာသို့',
+                'en': 'From Nearest Defined Location to End Location'
+            }
+        }
+
         for segment in road_segments:
             road_id = str(segment['road_id'])
-            
-            if segment['road_id'] in ['user_to_road', 'road_to_user']:
-                name_data = {
-                    'user_to_road': {
-                        'burmese': 'စတင်သည့်နေရာမှအနီးဆုံးသတ်မှတ်နေရာသို့',
-                        'english': 'From Start Location to Nearest Defined Location'
-                    },
-                    'road_to_user': {
-                        'burmese': 'အနီးဆုံးသတ်မှတ်နေရာမှပြီးဆုံးနေရာသို့',
-                        'english': 'From Nearest Defined Location to End Location'
-                    }
-                }
+            length_text = f"{segment['length']} meters"
+
+            if segment['road_id'] in user_segment_labels:
+                name_payload = build_name_response(user_segment_labels[segment['road_id']])
                 road_names.append({
                     'road_id': road_id,
-                    'burmese_name': name_data[segment['road_id']]['burmese'],
-                    'english_name': name_data[segment['road_id']]['english'],
-                    'length': f"{segment['length']} meters",
+                    **name_payload,
+                    'length': length_text,
                     'type': 'user_segment'
                 })
             elif segment['road_id'] == 'unknown_road':
+                unknown_name = {'mm': 'အမည်မသိလမ်း', 'en': 'Unknown Road Segment'}
                 road_names.append({
                     'road_id': road_id,
-                    'burmese_name': 'အမည်မသိလမ်း',
-                    'english_name': 'Unknown Road Segment',
-                    'length': f"{segment['length']} meters",
+                    **build_name_response(unknown_name),
+                    'length': length_text,
                     'type': 'unknown_segment'
                 })
             else:
                 cur.execute(
-                    "SELECT id, burmese_name, english_name FROM roads WHERE id::text = %s;",
+                    "SELECT id, name FROM roads WHERE id::text = %s;",
                     (road_id,)
                 )
                 road_data = cur.fetchone()
                 if road_data:
                     road_names.append({
                         'road_id': road_id,
-                        'burmese_name': road_data['burmese_name'],
-                        'english_name': road_data['english_name'],
-                        'length': f"{segment['length']} meters"
+                        **build_name_response(road_data['name']),
+                        'length': length_text
                     })
                 else:
+                    fallback_name = {'mm': 'အမည်မသိလမ်း', 'en': 'Unknown Road'}
                     road_names.append({
                         'road_id': road_id,
-                        'burmese_name': 'အမည်မသိလမ်း',
-                        'english_name': 'Unknown Road',
-                        'length': f"{segment['length']} meters"
+                        **build_name_response(fallback_name),
+                        'length': length_text
                     })
 
         # Get all locations for proximity checks
         cur.execute(
-            "SELECT burmese_name, english_name, address, ST_X(geom::geometry) AS lon, ST_Y(geom::geometry) AS lat "
+            "SELECT name, address, ST_X(geom::geometry) AS lon, ST_Y(geom::geometry) AS lat "
             "FROM locations;"
         )
         locations = cur.fetchall()
@@ -1487,6 +1699,16 @@ def plan_route():
                     min_dist = dist
                     nearest = loc
             return nearest
+
+        def format_defined_location(loc, location_type="defined_location"):
+            payload = {
+                **build_name_response(loc['name']),
+                **build_address_response(loc['address']),
+                "longitude": loc['lon'],
+                "latitude": loc['lat'],
+                "type": location_type
+            }
+            return payload
             
         # Find nearest locations
         nearest_start_location = find_nearest_location(start_point, locations)
@@ -1496,34 +1718,48 @@ def plan_route():
         close_end_location = find_nearest_location(end_point, locations, max_dist=50)
         
         # Set start and end locations
-        start_location = {
-            "burmese_name": close_start_location["burmese_name"],
-            "english_name": close_start_location["english_name"],
-            "address": close_start_location["address"],
-            "longitude": close_start_location["lon"],
-            "latitude": close_start_location["lat"],
-            "type": "defined_location"
-        } if close_start_location else {
+        start_location = format_defined_location(close_start_location) if close_start_location else {
             "longitude": start_point[0],
             "latitude": start_point[1],
             "coordinates": f"{start_point[0]}, {start_point[1]}",
             "type": "user_input"
         }
         
-        end_location = {
-            "burmese_name": close_end_location["burmese_name"],
-            "english_name": close_end_location["english_name"],
-            "address": close_end_location["address"],
-            "longitude": close_end_location["lon"],
-            "latitude": close_end_location["lat"],
-            "type": "defined_location"
-        } if close_end_location else {
+        end_location = format_defined_location(close_end_location) if close_end_location else {
             "longitude": end_point[0],
             "latitude": end_point[1],
             "coordinates": f"{end_point[0]}, {end_point[1]}",
             "type": "user_input"
         }
         
+        start_name_payload = None
+        if nearest_start_location and isinstance(nearest_start_location.get('name'), dict):
+            start_name_payload = {
+                key: value
+                for key, value in nearest_start_location['name'].items()
+                if value not in (None, "")
+            }
+        if start_name_payload is None:
+            start_name_payload = normalize_json_field(data.get('start_name'))
+        if isinstance(start_name_payload, dict) and not start_name_payload:
+            start_name_payload = None
+        if start_name_payload is None:
+            start_name_payload = {"en": data.get('start_name') or "Start"}
+
+        end_name_payload = None
+        if nearest_end_location and isinstance(nearest_end_location.get('name'), dict):
+            end_name_payload = {
+                key: value
+                for key, value in nearest_end_location['name'].items()
+                if value not in (None, "")
+            }
+        if end_name_payload is None:
+            end_name_payload = normalize_json_field(data.get('end_name'))
+        if isinstance(end_name_payload, dict) and not end_name_payload:
+            end_name_payload = None
+        if end_name_payload is None:
+            end_name_payload = {"en": data.get('end_name') or "End"}
+
         # Process step locations
         added_locations = set()
         
@@ -1537,14 +1773,7 @@ def plan_route():
                 
             if i == 0:
                 if close_start_location:
-                    step_locations.append({
-                        "burmese_name": close_start_location["burmese_name"],
-                        "english_name": close_start_location["english_name"],
-                        "address": close_start_location["address"],
-                        "longitude": close_start_location["lon"],
-                        "latitude": close_start_location["lat"],
-                        "type": "defined_location"
-                    })
+                    step_locations.append(format_defined_location(close_start_location))
                     added_locations.add(f"{close_start_location['lon']:.7f},{close_start_location['lat']:.7f}")
                 else:
                     step_locations.append({
@@ -1558,14 +1787,7 @@ def plan_route():
                 if close_end_location:
                     close_coord_key = f"{close_end_location['lon']:.7f},{close_end_location['lat']:.7f}"
                     if close_coord_key not in added_locations:
-                        step_locations.append({
-                            "burmese_name": close_end_location["burmese_name"],
-                            "english_name": close_end_location["english_name"],
-                            "address": close_end_location["address"],
-                            "longitude": close_end_location["lon"],
-                            "latitude": close_end_location["lat"],
-                            "type": "defined_location"
-                        })
+                        step_locations.append(format_defined_location(close_end_location))
                         added_locations.add(close_coord_key)
                 else:
                     if coord_key not in added_locations:
@@ -1581,14 +1803,7 @@ def plan_route():
                 if loc:
                     loc_coord_key = f"{loc['lon']:.7f},{loc['lat']:.7f}"
                     if loc_coord_key not in added_locations:
-                        step_locations.append({
-                            "burmese_name": loc["burmese_name"],
-                            "english_name": loc["english_name"],
-                            "address": loc["address"],
-                            "longitude": loc["lon"],
-                            "latitude": loc["lat"],
-                            "type": "defined_location"
-                        })
+                        step_locations.append(format_defined_location(loc))
                         added_locations.add(loc_coord_key)
                 else:
                     if coord_key not in added_locations:
@@ -1662,8 +1877,8 @@ def plan_route():
             (
                 user_id,
                 route_id,
-                (nearest_start_location['burmese_name'] if nearest_start_location else data.get('start_name', 'Start')),
-                (nearest_end_location['burmese_name'] if nearest_end_location else data.get('end_name', 'End')),
+                psycopg2.extras.Json(start_name_payload) if start_name_payload is not None else None,
+                psycopg2.extras.Json(end_name_payload) if end_name_payload is not None else None,
                 total_distance,
                 estimated_time / 60
             )
@@ -1865,11 +2080,41 @@ def get_route_history():
 
         history = []
         for row in rows:
+            raw_start_name = row.get('start_name')
+            if isinstance(raw_start_name, dict):
+                start_name_text = raw_start_name.get('mm') or raw_start_name.get('en')
+                start_name_mm = raw_start_name.get('mm')
+                start_name_en = raw_start_name.get('en')
+                start_name_json = raw_start_name
+            else:
+                start_name_text = raw_start_name
+                start_name_mm = None
+                start_name_en = None
+                start_name_json = None
+
+            raw_end_name = row.get('end_name')
+            if isinstance(raw_end_name, dict):
+                end_name_text = raw_end_name.get('mm') or raw_end_name.get('en')
+                end_name_mm = raw_end_name.get('mm')
+                end_name_en = raw_end_name.get('en')
+                end_name_json = raw_end_name
+            else:
+                end_name_text = raw_end_name
+                end_name_mm = None
+                end_name_en = None
+                end_name_json = None
+
             history.append({
                 "id": str(row['history_id']) if row['history_id'] is not None else None,
                 "route_id": row['route_id'],
-                "start_name": row.get('start_name'),
-                "end_name": row.get('end_name'),
+                "start_name": start_name_text,
+                "start_name_mm": start_name_mm,
+                "start_name_en": start_name_en,
+                "start_name_json": start_name_json,
+                "end_name": end_name_text,
+                "end_name_mm": end_name_mm,
+                "end_name_en": end_name_en,
+                "end_name_json": end_name_json,
                 "distance": float(row['total_distance_m']) if row.get('total_distance_m') is not None else None,
                 "duration_min": float(row['duration_min']) if row.get('duration_min') is not None else None,
                 "created_at": row['accessed_at'].isoformat() if row.get('accessed_at') else None,
@@ -1883,845 +2128,6 @@ def get_route_history():
     finally:
         cur.close()
         conn.close()
-
-# @app.route('/histories', methods=['GET'])
-# @jwt_required()
-# def get_history():
-#     user_id = get_jwt_identity()
-    
-#     conn = get_db_connection()
-#     cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
-    
-#     try:
-#         cur.execute(
-#             "SELECT "
-#             "h.history_id, h.route_id, h.accessed_at, h.start_name, h.end_name, "
-#             "h.total_distance_m, h.duration_min, ST_AsGeoJSON(r.geom::geometry) AS geojson, "
-#             "ST_X(r.start_loc::geometry) as start_lon, ST_Y(r.start_loc::geometry) as start_lat, "
-#             "ST_X(r.end_loc::geometry) as end_lon, ST_Y(r.end_loc::geometry) as end_lat "
-#             "FROM user_route_history h "
-#             "JOIN routes r ON h.route_id = r.id "
-#             "WHERE h.user_id = %s "
-#             "ORDER BY h.accessed_at DESC "
-#             "LIMIT 20;",
-#             (user_id,)
-#         )
-#         history = cur.fetchall()
-        
-#         history_list = []
-#         for item in history:
-#             start_coords = safe_extract_coordinates(item, 'start')
-#             end_coords = safe_extract_coordinates(item, 'end')
-            
-#             road_names = []
-#             if start_coords and end_coords and item['geojson']:
-#                 try:
-#                     geojson_data = json.loads(item['geojson'])
-#                     if geojson_data and 'coordinates' in geojson_data:
-#                         path_coords = [(coord[0], coord[1]) for coord in geojson_data['coordinates']]
-#                         _, _, road_segments = road_graph.dijkstra(start_coords, end_coords)
-                        
-#                         for segment in road_segments:
-#                             road_id = str(segment['road_id'])
-                            
-#                             if segment['road_id'] in ['user_to_road', 'road_to_user']:
-#                                 name_data = {
-#                                     'user_to_road': {
-#                                         'burmese': 'စတင်သည့်နေရာမှအနီးဆုံးသတ်မှတ်နေရာသို့',
-#                                         'english': 'From Start Location to Nearest Defined Location'
-#                                     },
-#                                     'road_to_user': {
-#                                         'burmese': 'အနီးဆုံးသတ်မှတ်နေရာမှပြီးဆုံးနေရာသို့',
-#                                         'english': 'From Nearest Defined Location to End Location'
-#                                     }
-#                                 }
-#                                 road_names.append({
-#                                     'road_id': road_id,
-#                                     'burmese_name': name_data[segment['road_id']]['burmese'],
-#                                     'english_name': name_data[segment['road_id']]['english'],
-#                                     'length': f"{segment['length']} meters",
-#                                     'type': 'user_segment'
-#                                 })
-#                             elif segment['road_id'] == 'unknown_road':
-#                                 road_names.append({
-#                                     'road_id': road_id,
-#                                     'burmese_name': 'အမည်မသိလမ်း',
-#                                     'english_name': 'Unknown Road Segment',
-#                                     'length': f"{segment['length']} meters",
-#                                     'type': 'unknown_segment'
-#                                 })
-#                             else:
-#                                 cur.execute(
-#                                     "SELECT id, burmese_name, english_name FROM roads WHERE id::text = %s;",
-#                                     (road_id,)
-#                                 )
-#                                 road_data = cur.fetchone()
-#                                 if road_data:
-#                                     road_names.append({
-#                                         'road_id': road_id,
-#                                         'burmese_name': road_data['burmese_name'],
-#                                         'english_name': road_data['english_name'],
-#                                         'length': f"{segment['length']} meters"
-#                                     })
-#                                 else:
-#                                     road_names.append({
-#                                         'road_id': road_id,
-#                                         'burmese_name': 'အမည်မသိလမ်း',
-#                                         'english_name': 'Unknown Road',
-#                                         'length': f"{segment['length']} meters"
-#                                     })
-#                 except Exception as e:
-#                     app.logger.error(f"Error processing road segments: {str(e)}")
-            
-#             history_list.append({
-#                 "id": item['history_id'],
-#                 "route_id": item['route_id'],
-#                 "accessed_at": item['accessed_at'].isoformat(),
-#                 "start": item['start_name'],
-#                 "end": item['end_name'],
-#                 "distance": item['total_distance_m'],
-#                 "duration": item['duration_min'],
-#                 "route": ({
-#                     "type": "Feature",
-#                     "properties": {},
-#                     "geometry": json.loads(item['geojson'])
-#                 } if item['geojson'] else None),
-#                 "road_names": road_names
-#             })
-
-#         return jsonify({"is_success": True, "histories": history_list}), 200
-#     except Exception as e:
-#         app.logger.error(f"Error in get_history: {str(e)}")
-#         return jsonify({"is_success": False, "msg": "Internal server error"}), 500
-#     finally:
-#         cur.close()
-#         conn.close()
-
-# @app.route('/history/<uuid:history_id>', methods=['GET'])
-# @jwt_required()
-# def get_history_by_id(history_id):
-#     user_id = get_jwt_identity()
-    
-#     conn = get_db_connection()
-#     cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
-    
-#     try:
-#         cur.execute(
-#             "SELECT "
-#             "h.history_id, h.route_id, h.accessed_at, h.start_name, h.end_name, "
-#             "h.total_distance_m, h.duration_min, ST_AsGeoJSON(r.geom::geometry) AS geojson, "
-#             "ST_X(r.start_loc::geometry) as start_lon, ST_Y(r.start_loc::geometry) as start_lat, "
-#             "ST_X(r.end_loc::geometry) as end_lon, ST_Y(r.end_loc::geometry) as end_lat "
-#             "FROM user_route_history h "
-#             "JOIN routes r ON h.route_id = r.id "
-#             "WHERE h.history_id = %s;",
-#             (str(history_id),)
-#         )
-#         item = cur.fetchone()
-        
-#         if not item:
-#             return jsonify({"is_success": False, "msg": "History item not found"}), 404
-        
-#         start_coords = safe_extract_coordinates(item, 'start')
-#         end_coords = safe_extract_coordinates(item, 'end')
-        
-#         road_names = []
-#         if start_coords and end_coords and item['geojson']:
-#             try:
-#                 geojson_data = json.loads(item['geojson'])
-#                 if geojson_data and 'coordinates' in geojson_data:
-#                     path_coords = [(coord[0], coord[1]) for coord in geojson_data['coordinates']]
-#                     _, _, road_segments = road_graph.dijkstra(start_coords, end_coords)
-                    
-#                     for segment in road_segments:
-#                         road_id = str(segment['road_id'])
-                        
-#                         if segment['road_id'] in ['user_to_road', 'road_to_user']:
-#                             name_data = {
-#                                 'user_to_road': {
-#                                     'burmese': 'စတင်သည့်နေရာမှအနီးဆုံးသတ်မှတ်နေရာသို့',
-#                                     'english': 'From Start Location to Nearest Defined Location'
-#                                 },
-#                                 'road_to_user': {
-#                                     'burmese': 'အနီးဆုံးသတ်မှတ်နေရာမှပြီးဆုံးနေရာသို့',
-#                                     'english': 'From Nearest Defined Location to End Location'
-#                                 }
-#                             }
-#                             road_names.append({
-#                                 'road_id': road_id,
-#                                 'burmese_name': name_data[segment['road_id']]['burmese'],
-#                                 'english_name': name_data[segment['road_id']]['english'],
-#                                 'length': f"{segment['length']} meters",
-#                                 'type': 'user_segment'
-#                             })
-#                         elif segment['road_id'] == 'unknown_road':
-#                             road_names.append({
-#                                 'road_id': road_id,
-#                                 'burmese_name': 'အမည်မသိလမ်း',
-#                                 'english_name': 'Unknown Road Segment',
-#                                 'length': f"{segment['length']} meters",
-#                                 'type': 'unknown_segment'
-#                             })
-#                         else:
-#                             cur.execute(
-#                                 "SELECT id, burmese_name, english_name FROM roads WHERE id::text = %s;",
-#                                 (road_id,)
-#                             )
-#                             road_data = cur.fetchone()
-#                             if road_data:
-#                                 road_names.append({
-#                                     'road_id': road_id,
-#                                     'burmese_name': road_data['burmese_name'],
-#                                     'english_name': road_data['english_name'],
-#                                     'length': f"{segment['length']} meters"
-#                                 })
-#                             else:
-#                                 road_names.append({
-#                                     'road_id': road_id,
-#                                     'burmese_name': 'အမည်မသိလမ်း',
-#                                     'english_name': 'Unknown Road',
-#                                     'length': f"{segment['length']} meters"
-#                                 })
-#             except Exception as e:
-#                 app.logger.error(f"Error processing road segments: {str(e)}")
-#         # Build locations and step locations similar to plan_route
-#         path_coords = []
-#         if item['geojson']:
-#             try:
-#                 geojson_data = json.loads(item['geojson'])
-#                 if geojson_data and 'coordinates' in geojson_data:
-#                     path_coords = [(coord[0], coord[1]) for coord in geojson_data['coordinates']]
-#                     # Robust safety fix: if swapping lon/lat aligns path ends closer to stored start/end, swap
-#                     if path_coords and start_coords and end_coords:
-#                         first_pt = path_coords[0]
-#                         last_pt = path_coords[-1]
-#                         try:
-#                             d_normal = calculate_distance(first_pt, start_coords) + calculate_distance(last_pt, end_coords)
-#                             d_swapped = calculate_distance((first_pt[1], first_pt[0]), start_coords) + \
-#                                         calculate_distance((last_pt[1], last_pt[0]), end_coords)
-#                             if d_swapped + 1e-6 < d_normal:
-#                                 path_coords = [(lat, lon) for lon, lat in path_coords]
-#                         except Exception as _:
-#                             pass
-#             except Exception as e:
-#                 app.logger.error(f"Error parsing geojson for history {history_id}: {str(e)}")
-
-#         start_location = None
-#         end_location = None
-#         step_locations = []
-
-#         # Fetch all locations for proximity checks
-#         try:
-#             cur.execute(
-#                 "SELECT burmese_name, english_name, address, ST_X(geom::geometry) AS lon, ST_Y(geom::geometry) AS lat "
-#                 "FROM locations;"
-#             )
-#             locations = cur.fetchall()
-
-#             def find_nearest_location(point, locations, max_dist=500):
-#                 min_dist = float('inf')
-#                 nearest = None
-#                 for loc in locations:
-#                     dist = calculate_distance(point, (loc['lon'], loc['lat']))
-#                     if dist < min_dist and dist <= max_dist:
-#                         min_dist = dist
-#                         nearest = loc
-#                 return nearest
-
-#             # Define points
-#             if start_coords and end_coords:
-#                 start_point = start_coords
-#                 end_point = end_coords
-#             else:
-#                 start_point = None
-#                 end_point = None
-
-#             # Find nearest locations
-#             nearest_start_location = find_nearest_location(start_point, locations) if start_point else None
-#             nearest_end_location = find_nearest_location(end_point, locations) if end_point else None
-
-#             close_start_location = find_nearest_location(start_point, locations, max_dist=50) if start_point else None
-#             close_end_location = find_nearest_location(end_point, locations, max_dist=50) if end_point else None
-
-#             # Set start and end locations
-#             if close_start_location:
-#                 start_location = {
-#                     "burmese_name": close_start_location["burmese_name"],
-#                     "english_name": close_start_location["english_name"],
-#                     "address": close_start_location["address"],
-#                     "longitude": close_start_location["lon"],
-#                     "latitude": close_start_location["lat"],
-#                     "type": "defined_location"
-#                 }
-#             elif start_point:
-#                 start_location = {
-#                     "longitude": start_point[0],
-#                     "latitude": start_point[1],
-#                     "coordinates": f"{start_point[0]}, {start_point[1]}",
-#                     "type": "user_input"
-#                 }
-
-#             if close_end_location:
-#                 end_location = {
-#                     "burmese_name": close_end_location["burmese_name"],
-#                     "english_name": close_end_location["english_name"],
-#                     "address": close_end_location["address"],
-#                     "longitude": close_end_location["lon"],
-#                     "latitude": close_end_location["lat"],
-#                     "type": "defined_location"
-#                 }
-#             elif end_point:
-#                 end_location = {
-#                     "longitude": end_point[0],
-#                     "latitude": end_point[1],
-#                     "coordinates": f"{end_point[0]}, {end_point[1]}",
-#                     "type": "user_input"
-#                 }
-
-#             # Build step locations from path
-#             added_locations = set()
-#             for i, coord in enumerate(path_coords):
-#                 if i > 0 and coord == path_coords[i-1]:
-#                     continue
-
-#                 coord_key = f"{coord[0]:.7f},{coord[1]:.7f}"
-#                 if coord_key in added_locations:
-#                     continue
-
-#                 if i == 0:
-#                     if close_start_location:
-#                         step_locations.append({
-#                             "burmese_name": close_start_location["burmese_name"],
-#                             "english_name": close_start_location["english_name"],
-#                             "address": close_start_location["address"],
-#                             "longitude": close_start_location["lon"],
-#                             "latitude": close_start_location["lat"],
-#                             "type": "defined_location"
-#                         })
-#                         added_locations.add(f"{close_start_location['lon']:.7f},{close_start_location['lat']:.7f}")
-#                     else:
-#                         step_locations.append({
-#                             "longitude": coord[0],
-#                             "latitude": coord[1],
-#                             "coordinates": f"{coord[0]}, {coord[1]}",
-#                             "type": "user_input_start"
-#                         })
-#                         added_locations.add(coord_key)
-#                 elif i == len(path_coords) - 1:
-#                     if close_end_location:
-#                         close_coord_key = f"{close_end_location['lon']:.7f},{close_end_location['lat']:.7f}"
-#                         if close_coord_key not in added_locations:
-#                             step_locations.append({
-#                                 "burmese_name": close_end_location["burmese_name"],
-#                                 "english_name": close_end_location["english_name"],
-#                                 "address": close_end_location["address"],
-#                                 "longitude": close_end_location["lon"],
-#                                 "latitude": close_end_location["lat"],
-#                                 "type": "defined_location"
-#                             })
-#                             added_locations.add(close_coord_key)
-#                     else:
-#                         if coord_key not in added_locations:
-#                             step_locations.append({
-#                                 "longitude": coord[0],
-#                                 "latitude": coord[1], 
-#                                 "coordinates": f"{coord[0]}, {coord[1]}",
-#                                 "type": "user_input_end"
-#                             })
-#                             added_locations.add(coord_key)
-#                 else:
-#                     loc = find_nearest_location(coord, locations)
-#                     if loc:
-#                         loc_coord_key = f"{loc['lon']:.7f},{loc['lat']:.7f}"
-#                         if loc_coord_key not in added_locations:
-#                             step_locations.append({
-#                                 "burmese_name": loc["burmese_name"],
-#                                 "english_name": loc["english_name"],
-#                                 "address": loc["address"],
-#                                 "longitude": loc["lon"],
-#                                 "latitude": loc["lat"],
-#                                 "type": "defined_location"
-#                             })
-#                             added_locations.add(loc_coord_key)
-#                     else:
-#                         if coord_key not in added_locations:
-#                             step_locations.append({
-#                                 "longitude": coord[0],
-#                                 "latitude": coord[1],
-#                                 "coordinates": f"{coord[0]}, {coord[1]}",
-#                                 "type": "road_point"
-#                             })
-#                             added_locations.add(coord_key)
-#         except Exception as e:
-#             app.logger.error(f"Error building locations for history {history_id}: {str(e)}")
-
-#         # Build response matching requested structure
-#         response_obj = {
-#             "is_success": True,
-#             "route_id": item['route_id'],
-#             "distance": item['total_distance_m'],
-#             "estimated_time": (item['duration_min'] * 60.0) if item['duration_min'] is not None else None,
-#             "route": ({
-#                 "type": "Feature",
-#                 "properties": {},
-#                 "geometry": json.loads(item['geojson'])
-#             } if item['geojson'] else None),
-#             "road_names": road_names,
-#             "step_locations": step_locations,
-#             "start_location": start_location,
-#             "end_location": end_location
-#         }
-
-#         return jsonify(response_obj), 200
-#     except Exception as e:
-#         app.logger.error(f"Error in get_history_by_id: {str(e)}")
-#         return jsonify({"is_success": False, "msg": "Internal server error"}), 500
-#     finally:
-#         cur.close()
-#         conn.close()
-
-# @app.route('/user/locations', methods=['GET'])
-# def get_user_locations():
-#     conn = get_db_connection()
-#     cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
-#     try:
-#         cur.execute(
-#             "SELECT id, burmese_name, english_name, address, type, description, "
-#             "ST_X(ST_GeomFromEWKB(geom::geometry)) AS lon, ST_Y(ST_GeomFromEWKB(geom::geometry)) AS lat "
-#             "FROM locations WHERE NOT type = 'intersection' ORDER BY english_name"
-#         )
-#         locations = cur.fetchall()
-#         return jsonify({"is_success": True, "data": [dict(loc) for loc in locations]}), 200
-#     finally:
-#         cur.close()
-#         conn.close()
-
-# @app.route('/user/roads', methods=['GET'])
-# def all_roads():
-#     conn = get_db_connection()
-#     cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
-#     try:
-#         cur.execute(
-#             "SELECT id, burmese_name, english_name, road_type, is_oneway, length_m, "
-#             "ST_AsGeoJSON(geom::geometry) AS geojson "
-#             "FROM roads ORDER BY english_name;"
-#         )
-#         roads = cur.fetchall()
-        
-#         result_roads = []
-#         for road in roads:
-#             road_dict = dict(road)
-#             if road_dict['length_m'] and isinstance(road_dict['length_m'], list):
-#                 road_dict['total_length'] = sum(road_dict['length_m'])
-#             else:
-#                 road_dict['total_length'] = road_dict['length_m'] or 0
-#             result_roads.append(road_dict)
-
-#         return jsonify({"is_success": True, "data": result_roads}), 200
-#     finally:
-#         cur.close()
-#         conn.close()
-
-
-# === ADMIN ROUTES ===
-# @app.route('/admin/locations', methods=['POST'])
-# @admin_required
-# def create_location():
-#     data = request.get_json()
-#     burmese_name = data.get('burmese_name')
-#     english_name = data.get('english_name')
-#     address = data.get('address')
-#     description = data.get('description')
-#     lon = data.get('lon')
-#     lat = data.get('lat')
-#     description = data.get('description')
-#     loc_type = data.get('type')
-
-#     if not burmese_name or english_name is None or address is None or lon is None or lat is None:
-#         return jsonify({"is_success": False, "msg": "Missing name or coordinates"}), 400
-
-#     conn = get_db_connection()
-#     cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
-#     try:
-#         cur.execute(
-#             "INSERT INTO locations (burmese_name, english_name, address, geom, type, description) "
-#             "VALUES (%s, %s, %s, ST_GeogFromText(%s), %s, %s) "
-#             "RETURNING id, burmese_name, english_name, address, type, description;",
-#             (burmese_name, english_name, address, f"SRID=4326;POINT({lon} {lat})", loc_type, description)
-#         )
-#         location = cur.fetchone()
-#         conn.commit()
-
-#         if not location:
-#             return jsonify({"is_success": False, "msg": "Failed to create location, no data returned."}), 500
-
-#         return jsonify({
-#             "is_success": True,
-#             "id": location['id'],
-#             "burmese_name": location['burmese_name'],
-#             "english_name": location['english_name'],
-#             "address": location['address'],
-#             "description": location['description'],
-#             "type": location['type'],
-#             "description": location['description'],
-#             "msg": "Location created"
-#         }), 201
-#     except Exception as e:
-#         conn.rollback()
-#         return jsonify({"is_success": False, "msg": str(e)}), 500
-#     finally:
-#         cur.close()
-#         conn.close()
-
-# @app.route('/admin/locations', methods=['GET'])
-# @admin_required
-# def get_all_locations():
-#     conn = get_db_connection()
-#     cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
-#     try:
-#         cur.execute(
-#             "SELECT id, burmese_name, english_name, address, type, description, "
-#             "ST_X(ST_GeomFromEWKB(geom::geometry)) AS lon, ST_Y(ST_GeomFromEWKB(geom::geometry)) AS lat "
-#             "FROM locations ORDER BY english_name;"
-#         )
-#         locations = cur.fetchall()
-#         return jsonify({"is_success": True, "data": [dict(loc) for loc in locations]}), 200
-#     finally:
-#         cur.close()
-#         conn.close()
-
-# @app.route('/admin/locations/<uuid:location_id>', methods=['GET'])
-# @admin_required
-# def get_location(location_id):
-#     conn = get_db_connection()
-#     cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
-#     try:
-#         cur.execute(
-#             "SELECT id, burmese_name, english_name, address, type, description, "
-#             "ST_X(ST_GeomFromEWKB(geom::geometry)) AS lon, ST_Y(ST_GeomFromEWKB(geom::geometry)) AS lat "
-#             "FROM locations WHERE id = %s;",
-#             (str(location_id),)
-#         )
-#         location = cur.fetchone()
-#         if not location:
-#             return jsonify({"is_success": False, "msg": "Location not found"}), 404
-
-#         return jsonify({"is_success": True, "data": dict(location)}), 200
-#     finally:
-#         cur.close()
-#         conn.close()
-
-# @app.route('/admin/locations/<uuid:location_id>', methods=['PUT'])
-# @admin_required
-# def update_location(location_id):
-#     data = request.get_json()
-#     updates = []
-#     params = []
-
-#     if 'burmese_name' in data:
-#         updates.append("burmese_name = %s")
-#         params.append(data['burmese_name'])
-
-#     if 'english_name' in data:
-#         updates.append("english_name = %s")
-#         params.append(data['english_name'])
-
-#     if 'address' in data:
-#         updates.append("address = %s")
-#         params.append(data['address'])
-
-#     if 'description' in data:
-#         updates.append("description = %s")
-#         params.append(data['description'])
-
-#     if 'type' in data:
-#         updates.append("type = %s")
-#         params.append(data['type'])
-    
-#     if 'lon' in data and 'lat' in data:
-#         updates.append("geom = ST_GeogFromText(%s)")
-#         params.append(f"SRID=4326;POINT({data['lon']} {data['lat']})")
-    
-#     if not updates:
-#         return jsonify({"is_success": False,"msg": "No updates provided"}), 400
-    
-#     params.append(str(location_id))
-    
-#     conn = get_db_connection()
-#     cur = conn.cursor()
-#     try:
-#         query = f"UPDATE locations SET {', '.join(updates)} WHERE id = %s RETURNING id;"
-#         cur.execute(query, tuple(params))
-#         updated = cur.fetchone()
-#         if not updated:
-#             return jsonify({"is_success": False,"msg": "Location not found"}), 404
-            
-#         conn.commit()
-#         return jsonify({"is_success": True, "msg": "Location updated"}), 200
-#     except Exception as e:
-#         conn.rollback()
-#         app.logger.error(f"Database error in update_location: {str(e)}")
-#         return jsonify({"is_success": False, "msg": str(e)}), 500
-#     finally:
-#         cur.close()
-#         conn.close()
-
-# @app.route('/admin/locations/<uuid:location_id>', methods=['DELETE'])
-# @admin_required
-# def delete_location(location_id):
-#     conn = get_db_connection()
-#     cur = conn.cursor()
-#     try:
-#         cur.execute("DELETE FROM locations WHERE id = %s RETURNING id;", (str(location_id),))
-#         deleted = cur.fetchone()
-#         if not deleted:
-#             return jsonify({"is_success": False, "msg": "Location not found"}), 404
-
-#         conn.commit()
-#         return jsonify({"is_success": True, "msg": "Location deleted"}), 200
-#     except psycopg2.errors.ForeignKeyViolation:
-#         conn.rollback()
-#         return jsonify({
-#             "is_success": False,
-#             "msg": "Cannot delete location referenced by other records",
-#             "solution": "Remove dependent records first"
-#         }), 400
-#     finally:
-#         cur.close()
-#         conn.close()
-
-# @app.route('/admin/roads', methods=['POST'])
-# @admin_required
-# def create_road():
-#     data = request.get_json()
-#     burmese_name = data.get('burmese_name')
-#     english_name = data.get('english_name')
-#     coordinates = data.get('coordinates')
-#     length_m = data.get('length_m')
-#     road_type = data.get('road_type')
-#     is_oneway = data.get('is_oneway', False)
-    
-#     if not isinstance(coordinates, list) or len(coordinates) < 2:
-#         return jsonify({"is_success": False, "msg": "At least 2 coordinate points required (list of [lon, lat])"}), 400
-
-#     if not isinstance(length_m, list) or len(length_m) != len(coordinates) - 1:
-#         return jsonify({"is_success": False, "msg": "Length must be an array with one less element than coordinates"}), 400
-
-#     validated_coords = []
-#     for idx, point in enumerate(coordinates):
-#         if not isinstance(point, (list, tuple)) or len(point) != 2:
-#             return jsonify({"is_success": False, "msg": f"Coordinate at index {idx} must be a list/tuple of [lon, lat], got: {point}"}), 400
-#         try:
-#             lon = float(point[0])
-#             lat = float(point[1])
-#         except (ValueError, TypeError):
-#             return jsonify({"is_success": False, "msg": f"Coordinate at index {idx} contains non-numeric values: {point}"}), 400
-#         validated_coords.append((lon, lat))
-
-#     if len(validated_coords) < 2:
-#         return jsonify({"is_success": False, "msg": "At least 2 valid coordinate points required"}), 400
-
-#     wkt_coords = ", ".join([f"{lon} {lat}" for lon, lat in validated_coords])
-#     wkt_linestring = f"LINESTRING({wkt_coords})"
-    
-#     conn = get_db_connection()
-#     cur = conn.cursor()
-#     try:
-#         cur.execute(
-#             "INSERT INTO roads (geom, length_m, road_type, is_oneway, burmese_name, english_name) "
-#             "VALUES (ST_GeogFromText(%s), %s, %s, %s, %s, %s) "
-#             "RETURNING id;",
-#             (f"SRID=4326;{wkt_linestring}", length_m, road_type, is_oneway, burmese_name, english_name)
-#         )
-#         road_id = cur.fetchone()[0]
-#         conn.commit()
-
-#         road_graph.build_graph()
-
-#         return jsonify({
-#             "is_success": True,
-#             "id": road_id,
-#             "segment_lengths": length_m,
-#             "total_length": sum(length_m),
-#             "msg": "Road created"
-#         }), 201
-#     except Exception as e:
-#         conn.rollback()
-#         return jsonify({"is_success": False, "msg": str(e)}), 500
-#     finally:
-#         cur.close()
-#         conn.close()
-
-# @app.route('/admin/roads', methods=['GET'])
-# @admin_required
-# def get_all_roads():
-#     conn = get_db_connection()
-#     cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
-#     try:
-#         cur.execute(
-#             "SELECT id, burmese_name, english_name, road_type, is_oneway, length_m, "
-#             "ST_AsGeoJSON(geom::geometry) AS geojson "
-#             "FROM roads ORDER BY english_name;"
-#         )
-#         roads = cur.fetchall()
-        
-#         result_roads = []
-#         for road in roads:
-#             road_dict = dict(road)
-#             if road_dict['length_m'] and isinstance(road_dict['length_m'], list):
-#                 road_dict['total_length'] = sum(road_dict['length_m'])
-#             else:
-#                 road_dict['total_length'] = road_dict['length_m'] or 0
-#             result_roads.append(road_dict)
-
-#         return jsonify({"is_success": True, "data": result_roads}), 200
-#     finally:
-#         cur.close()
-#         conn.close()
-
-# @app.route('/admin/roads/<uuid:road_id>', methods=['GET'])
-# @admin_required
-# def get_road(road_id):
-#     conn = get_db_connection()
-#     cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
-#     try:
-#         cur.execute(
-#             "SELECT id, burmese_name, english_name, road_type, is_oneway, length_m, "
-#             "ST_AsGeoJSON(geom::geometry) AS geojson "
-#             "FROM roads WHERE id = %s;",
-#             (str(road_id),)
-#         )
-#         road = cur.fetchone()
-#         if not road:
-#             return jsonify({"is_success": False, "msg": "Road not found"}), 404
-
-#         road_dict = dict(road)
-#         if road_dict['length_m'] and isinstance(road_dict['length_m'], list):
-#             road_dict['total_length'] = sum(road_dict['length_m'])
-#         else:
-#             road_dict['total_length'] = road_dict['length_m'] or 0
-
-#         return jsonify({"is_success": True, "data": road_dict}), 200
-#     finally:
-#         cur.close()
-#         conn.close()
-
-# @app.route('/admin/roads/<uuid:road_id>', methods=['PUT'])
-# @admin_required
-# def update_road(road_id):
-#     data = request.get_json()
-#     updates = []
-#     params = []
-
-#     if 'burmese_name' in data:
-#         updates.append("burmese_name = %s")
-#         params.append(data['burmese_name'])
-
-#     if 'english_name' in data:
-#         updates.append("english_name = %s")
-#         params.append(data['english_name'])
-
-#     if 'length_m' in data:
-#         length_data = data['length_m']
-#         if isinstance(length_data, list):
-#             updates.append("length_m = %s")
-#             params.append(length_data)
-#         else:
-#             updates.append("length_m = %s")
-#             params.append([length_data])
-
-#     if 'road_type' in data:
-#         updates.append("road_type = %s")
-#         params.append(data['road_type'])
-    
-#     if 'is_oneway' in data:
-#         updates.append("is_oneway = %s")
-#         params.append(data['is_oneway'])
-    
-#     if 'coordinates' in data:
-#         if len(data['coordinates']) < 2:
-#             return jsonify({"is_success": False, "msg": "At least 2 points required"}), 400
-            
-#         wkt_coords = ", ".join([f"{point[0]} {point[1]}" for point in data['coordinates']])
-#         wkt_linestring = f"LINESTRING({wkt_coords})"
-#         updates.append("geom = ST_GeogFromText(%s)")
-#         params.append(f"SRID=4326;{wkt_linestring}")
-    
-#     if not updates:
-#         return jsonify({"is_success": False, "msg": "No updates provided"}), 400
-    
-#     params.append(str(road_id))
-    
-#     conn = get_db_connection()
-#     cur = conn.cursor()
-#     try:
-#         query = f"UPDATE roads SET {', '.join(updates)} WHERE id = %s RETURNING id;"
-#         cur.execute(query, tuple(params))
-#         updated = cur.fetchone()
-#         if not updated:
-#             return jsonify({"is_success": False, "msg": "Road not found"}), 404
-
-#         conn.commit()
-        
-#         if 'coordinates' in data:
-#             road_graph.build_graph()
-            
-#         return jsonify({"is_success": True, "msg": "Road updated"}), 200
-#     except Exception as e:
-#         conn.rollback()
-#         return jsonify({"is_success": False, "msg": str(e)}), 500
-#     finally:
-#         cur.close()
-#         conn.close()
-
-# @app.route('/admin/roads/<uuid:road_id>', methods=['DELETE'])
-# @admin_required
-# def delete_road(road_id):
-#     conn = get_db_connection()
-#     cur = conn.cursor()
-#     try:
-#         road_id_str = str(road_id)
-#         cur.execute("DELETE FROM roads WHERE id = %s RETURNING id;", (road_id_str,))
-#         deleted = cur.fetchone()
-#         if not deleted:
-#             return jsonify({"is_success": False,"msg": "Road not found"}), 404
-
-#         conn.commit()
-        
-#         road_graph.build_graph()
-
-#         return jsonify({"is_success": True,"msg": "Road deleted"}), 200
-#     except psycopg2.errors.ForeignKeyViolation:
-#         conn.rollback()
-#         return jsonify({
-#             "is_success": False,
-#             "msg": "Cannot delete road referenced by traffic or routes",
-#             "solution": "Delete dependent records first"
-#         }), 400
-#     finally:
-#         cur.close()
-#         conn.close()
-
-# @app.route('/admin/users/<uuid:user_id>/make-admin', methods=['POST'])
-# @admin_required
-# def make_user_admin(user_id):
-#     conn = get_db_connection()
-#     cur = conn.cursor()
-#     try:
-#         user_id_str = str(user_id)
-#         cur.execute(
-#             "UPDATE users SET is_admin = TRUE WHERE id = %s RETURNING id;",
-#             (user_id_str,)
-#         )
-#         updated = cur.fetchone()
-#         if not updated:
-#             return jsonify({"is_success": False,"msg": "User not found"}), 404
-            
-#         conn.commit()
-#         return jsonify({"is_success": True,"msg": "User granted admin privileges"}), 200
-#     finally:
-#         cur.close()
-#         conn.close()
         
 # Health check
 @app.route('/health', methods=['GET'])

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { Header } from "./components/header";
+import { Header } from "@/components/header";
 import {
   BadgeCheck,
   CalendarClock,

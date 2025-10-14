@@ -14,10 +14,16 @@ import {
   Utensils,
   X,
 } from "lucide-react";
-import { Header } from "./components/header";
+import { Header } from "@/components/header";
+import { useTranslation } from "react-i18next";
+import {
+  normalizeLocalizedField,
+  normalizeLocalizedNames,
+  pickLocalizedText,
+} from "@/utils/localized";
+import type { LocalizedTextPair } from "@/utils/localized";
 
-const API_BASE_URL =
-  import.meta.env.VITE_API_URL ?? "http://127.0.0.1:4000";
+const API_BASE_URL = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:4000";
 
 type GalleryImage = {
   src: string;
@@ -40,8 +46,8 @@ type CityDetails = {
   user_id: string | null;
   burmese_name: string | null;
   english_name: string;
-  address: string | null;
-  description: string | null;
+  address: LocalizedTextPair;
+  description: LocalizedTextPair;
   geometry: string | null;
   image_urls: string[] | null;
 };
@@ -52,8 +58,8 @@ type CityLocation = {
   user_id: string | null;
   burmese_name: string | null;
   english_name: string | null;
-  address: string | null;
-  description: string | null;
+  address: LocalizedTextPair;
+  description: LocalizedTextPair;
   location_type: string | null;
   geometry: string | null;
   image_urls: string[] | null;
@@ -109,11 +115,34 @@ type CityApiPayload = Partial<{
   user_id: unknown;
   burmese_name: unknown;
   english_name: unknown;
+  name: unknown;
+  name_en: unknown;
+  name_mm: unknown;
   address: unknown;
+  address_en: unknown;
+  address_mm: unknown;
+  address_json: unknown;
   description: unknown;
+  description_en: unknown;
+  description_mm: unknown;
+  description_json: unknown;
+  english_description: unknown;
+  burmese_description: unknown;
   geometry: unknown;
   image_urls: unknown;
 }>;
+
+function pickStringValue(...candidates: unknown[]): string | null {
+  for (const candidate of candidates) {
+    if (typeof candidate === "string") {
+      const trimmed = candidate.trim();
+      if (trimmed.length > 0) {
+        return trimmed;
+      }
+    }
+  }
+  return null;
+}
 
 type LocationApiPayload = Partial<{
   id: unknown;
@@ -121,8 +150,19 @@ type LocationApiPayload = Partial<{
   user_id: unknown;
   burmese_name: unknown;
   english_name: unknown;
+  name: unknown;
+  name_en: unknown;
+  name_mm: unknown;
   address: unknown;
+  address_en: unknown;
+  address_mm: unknown;
+  address_json: unknown;
   description: unknown;
+  description_en: unknown;
+  description_mm: unknown;
+  description_json: unknown;
+  english_description: unknown;
+  burmese_description: unknown;
   location_type: unknown;
   geometry: unknown;
   image_urls: unknown;
@@ -132,16 +172,35 @@ function normalizeCityResponse(city: unknown): CityDetails {
   const payload: CityApiPayload =
     typeof city === "object" && city !== null ? (city as CityApiPayload) : {};
 
+  const address = normalizeLocalizedField({
+    value: payload.address,
+    value_en: payload.address_en,
+    value_mm: payload.address_mm,
+    json: payload.address_json,
+  });
+
+  const description = normalizeLocalizedField({
+    value: payload.description,
+    value_en: payload.description_en,
+    value_mm: payload.description_mm,
+    english: payload.english_description,
+    burmese: payload.burmese_description,
+    json: payload.description_json,
+  });
+
   return {
     id: payload.id ? String(payload.id) : "",
     user_id: payload.user_id ? String(payload.user_id) : null,
     burmese_name:
-      typeof payload.burmese_name === "string" ? payload.burmese_name : null,
+      pickStringValue(payload.burmese_name, payload.name_mm) ?? null,
     english_name:
-      typeof payload.english_name === "string" ? payload.english_name : "",
-    address: typeof payload.address === "string" ? payload.address : null,
-    description:
-      typeof payload.description === "string" ? payload.description : null,
+      pickStringValue(
+        payload.english_name,
+        payload.name_en,
+        payload.name
+      ) ?? "",
+    address,
+    description,
     geometry: typeof payload.geometry === "string" ? payload.geometry : null,
     image_urls: normalizeImageUrls(payload.image_urls ?? null),
   };
@@ -153,17 +212,35 @@ function normalizeLocationResponse(location: unknown): CityLocation {
       ? (location as LocationApiPayload)
       : {};
 
+  const address = normalizeLocalizedField({
+    value: payload.address,
+    value_en: payload.address_en,
+    value_mm: payload.address_mm,
+    json: payload.address_json,
+  });
+
+  const description = normalizeLocalizedField({
+    value: payload.description,
+    value_en: payload.description_en,
+    value_mm: payload.description_mm,
+    english: payload.english_description,
+    burmese: payload.burmese_description,
+    json: payload.description_json,
+  });
+
   return {
     id: payload.id ? String(payload.id) : "",
     city_id: payload.city_id ? String(payload.city_id) : null,
     user_id: payload.user_id ? String(payload.user_id) : null,
     burmese_name:
-      typeof payload.burmese_name === "string" ? payload.burmese_name : null,
-    english_name:
-      typeof payload.english_name === "string" ? payload.english_name : null,
-    address: typeof payload.address === "string" ? payload.address : null,
-    description:
-      typeof payload.description === "string" ? payload.description : null,
+      pickStringValue(payload.burmese_name, payload.name_mm) ?? null,
+    english_name: pickStringValue(
+      payload.english_name,
+      payload.name_en,
+      payload.name
+    ),
+    address,
+    description,
     location_type:
       typeof payload.location_type === "string" ? payload.location_type : null,
     geometry: typeof payload.geometry === "string" ? payload.geometry : null,
@@ -222,7 +299,9 @@ async function fetchCity(cityId: string, signal: AbortSignal) {
   if (!response.ok) return null;
   const json = await response.json();
   if (!json?.is_success || !json.data) return null;
-  return normalizeCityResponse(json.data);
+  const payload = Array.isArray(json.data) ? json.data[0] : json.data;
+  if (!payload) return null;
+  return normalizeCityResponse(payload);
 }
 
 async function fetchCityByIdentifier(identifier: string, signal: AbortSignal) {
@@ -237,9 +316,13 @@ async function fetchCityByIdentifier(identifier: string, signal: AbortSignal) {
   const response = await fetch(`${API_BASE_URL}/cities`, { signal });
   if (!response.ok) return null;
   const json = await response.json();
-  const cities: CityDetails[] = Array.isArray(json?.data)
-    ? (json.data as unknown[]).map(normalizeCityResponse)
+  const raw = json?.data;
+  const items = Array.isArray(raw)
+    ? raw
+    : raw && typeof raw === "object"
+    ? [raw]
     : [];
+  const cities: CityDetails[] = items.map(normalizeCityResponse);
 
   const slug = slugify(trimmed);
   const match = cities.find((candidate) => {
@@ -261,8 +344,14 @@ async function fetchLocations(cityId: string, signal: AbortSignal) {
   );
   if (!response.ok) return [];
   const json = await response.json();
-  if (!json?.is_success || !Array.isArray(json.data)) return [];
-  return json.data.map(normalizeLocationResponse);
+  if (!json?.is_success || !json.data) return [];
+  const raw = json.data;
+  const items = Array.isArray(raw)
+    ? raw
+    : raw && typeof raw === "object"
+    ? [raw]
+    : [];
+  return items.map(normalizeLocationResponse);
 }
 
 function SectionHeading({
@@ -450,6 +539,9 @@ export default function Details() {
   const { cityId } = useParams<{ cityId?: string }>();
   const requestedIdentifier = (cityId ?? "maubin").trim() || "maubin";
 
+  const { i18n } = useTranslation();
+  const activeLanguage = i18n.resolvedLanguage ?? i18n.language ?? "en";
+
   const [city, setCity] = useState<CityDetails | null>(null);
   const [locations, setLocations] = useState<CityLocation[]>([]);
   const [isCityLoading, setIsCityLoading] = useState(true);
@@ -558,20 +650,47 @@ export default function Details() {
     };
   }, [modalState.open]);
 
-  const displayCityName =
-    city?.english_name ?? formatCityName(requestedIdentifier);
+  const cityLocalizedNames = useMemo(
+    () =>
+      normalizeLocalizedNames({
+        english_name: city?.english_name,
+        burmese_name: city?.burmese_name,
+      }),
+    [city?.english_name, city?.burmese_name]
+  );
 
-  const heroDescription = city?.description
-    ? city.description
+  const { en: cityNameEn, mm: cityNameMm } = cityLocalizedNames;
+
+  const displayCityName = useMemo(
+    () =>
+      pickLocalizedText(activeLanguage, {
+        en: cityNameEn,
+        mm: cityNameMm,
+        fallback: formatCityName(requestedIdentifier),
+      }),
+    [activeLanguage, cityNameEn, cityNameMm, requestedIdentifier]
+  );
+
+  const cityDescriptionText = useMemo(() => {
+    if (!city) return "";
+    return pickLocalizedText(activeLanguage, {
+      en: city.description.en,
+      mm: city.description.mm,
+      fallback: "",
+    });
+  }, [city, activeLanguage]);
+
+  const heroDescription = cityDescriptionText
+    ? cityDescriptionText
     : `Navigate the scenic waterways, heritage streets, and vibrant markets that define ${displayCityName}.`;
 
   const historyParagraphs = useMemo<string[]>(() => {
-    if (!city?.description) return [];
-    return city.description
+    if (!cityDescriptionText) return [];
+    return cityDescriptionText
       .split(/\n+/)
       .map((paragraph) => paragraph.trim())
       .filter((paragraph) => paragraph.length > 0);
-  }, [city?.description]);
+  }, [cityDescriptionText]);
 
   const heroImages = useMemo(
     () => createGalleryFromUrls(city?.image_urls, displayCityName),
@@ -595,25 +714,38 @@ export default function Details() {
     }
 
     locations.forEach((location, index) => {
-      const name =
-        location.english_name ||
-        location.burmese_name ||
-        `${displayCityName} highlight ${index + 1}`;
+      const normalizedNames = normalizeLocalizedNames(location);
+      const fallbackName = `${displayCityName} highlight ${index + 1}`;
+      const name = pickLocalizedText(activeLanguage, {
+        en: normalizedNames.en,
+        mm: normalizedNames.mm,
+        fallback: fallbackName,
+      });
       const tag = location.location_type
         ? formatLocationTag(location.location_type)
         : undefined;
       const gallery = createGalleryFromUrls(location.image_urls, name);
 
-      const description =
-        location.description ??
-        `Discover this ${
-          tag ? tag.toLowerCase() : "featured"
-        } spot while exploring ${displayCityName}.`;
+      const fallbackDescription = `Discover this ${
+        tag ? tag.toLowerCase() : "featured"
+      } spot while exploring ${displayCityName}.`;
+
+      const description = pickLocalizedText(activeLanguage, {
+        en: location.description.en,
+        mm: location.description.mm,
+        fallback: fallbackDescription,
+      }).trim();
+
+      const addressText = pickLocalizedText(activeLanguage, {
+        en: location.address.en,
+        mm: location.address.mm,
+        fallback: location.address.en ?? location.address.mm ?? null,
+      }).trim();
 
       const card: ContentCard = {
         name,
         description,
-        address: location.address ?? undefined,
+        address: addressText.length ? addressText : undefined,
         tags: tag ? [tag] : undefined,
         images: gallery,
       };
@@ -634,7 +766,7 @@ export default function Details() {
       restaurantCards: restaurant,
       hotelCards: hotel,
     };
-  }, [locations, displayCityName]);
+  }, [locations, displayCityName, activeLanguage]);
 
   const datasetEligibleLocations = useMemo(() => {
     if (!locations.length) return [];
@@ -652,21 +784,27 @@ export default function Details() {
   const datasetHighlights = useMemo(
     () =>
       datasetEligibleLocations.slice(0, 3).map((location, index) => {
-        const title =
-          location.english_name ??
-          location.burmese_name ??
-          `Location ${index + 1}`;
+        const normalizedNames = normalizeLocalizedNames(location);
+        const title = pickLocalizedText(activeLanguage, {
+          en: normalizedNames.en,
+          mm: normalizedNames.mm,
+          fallback: `Location ${index + 1}`,
+        });
         const typeLabel = location.location_type
           ? formatLocationTag(location.location_type)
           : "Point of Interest";
+        const fallbackDescription = `Discover this ${typeLabel.toLowerCase()} while exploring ${displayCityName}.`;
+        const description = pickLocalizedText(activeLanguage, {
+          en: location.description.en,
+          mm: location.description.mm,
+          fallback: fallbackDescription,
+        });
         return {
           title,
-          description:
-            location.description ??
-            `Discover this ${typeLabel.toLowerCase()} while exploring ${displayCityName}.`,
+          description,
         };
       }),
-    [datasetEligibleLocations, displayCityName]
+    [datasetEligibleLocations, displayCityName, activeLanguage]
   );
 
   const tabs: { key: TabKey; label: string; icon: typeof Landmark }[] = [
@@ -919,13 +1057,36 @@ export default function Details() {
                   />
                   <div className="grid gap-4 md:grid-cols-2">
                     {locationHighlights.map((highlight, index) => {
-                      const highlightName =
-                        highlight.english_name ??
-                        highlight.burmese_name ??
-                        `Dataset highlight ${index + 1}`;
+                      const normalizedNames =
+                        normalizeLocalizedNames(highlight);
+                      const highlightName = pickLocalizedText(activeLanguage, {
+                        en: normalizedNames.en,
+                        mm: normalizedNames.mm,
+                        fallback: `Dataset highlight ${index + 1}`,
+                      });
                       const highlightTag = highlight.location_type
                         ? formatLocationTag(highlight.location_type)
                         : null;
+                      const highlightAddress = pickLocalizedText(
+                        activeLanguage,
+                        {
+                          en: highlight.address.en,
+                          mm: highlight.address.mm,
+                          fallback:
+                            highlight.address.en ??
+                            highlight.address.mm ??
+                            null,
+                        }
+                      ).trim();
+                      const highlightDescription = pickLocalizedText(
+                        activeLanguage,
+                        {
+                          en: highlight.description.en,
+                          mm: highlight.description.mm,
+                          fallback:
+                            "We're still gathering storytelling details for this location. Open the interactive map for more context.",
+                        }
+                      ).trim();
                       return (
                         <article
                           key={highlight.id}
@@ -936,10 +1097,10 @@ export default function Details() {
                               <h4 className="text-lg font-semibold text-white">
                                 {highlightName}
                               </h4>
-                              {highlight.address ? (
+                              {highlightAddress ? (
                                 <p className="mt-1 flex items-center gap-1 text-xs text-blue-200">
                                   <MapPin className="h-3.5 w-3.5" />
-                                  {highlight.address}
+                                  {highlightAddress}
                                 </p>
                               ) : null}
                             </div>
@@ -950,8 +1111,7 @@ export default function Details() {
                             ) : null}
                           </div>
                           <p className="mt-3 text-sm text-slate-300/90">
-                            {highlight.description ??
-                              "We're still gathering storytelling details for this location. Open the interactive map for more context."}
+                            {highlightDescription}
                           </p>
                         </article>
                       );

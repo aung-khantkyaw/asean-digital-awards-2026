@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   CircleMarker,
@@ -38,16 +38,23 @@ import {
   University,
   ShipWheel,
 } from "lucide-react";
-import { Header } from "./components/header";
+import { Header } from "@/components/header";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
+import {
+  normalizeLocalizedField,
+  normalizeLocalizedNames,
+  pickLocalizedText,
+} from "@/utils/localized";
+import type { LocalizedTextPair } from "@/utils/localized";
 
 interface City {
   id: string;
   english_name: string;
   burmese_name: string | null;
   geometry: string | null;
-  address: string | null;
-  description: string | null;
+  address: LocalizedTextPair;
+  description: LocalizedTextPair;
   image_urls?: string[] | null;
 }
 
@@ -56,14 +63,21 @@ interface CityLocation {
   english_name: string;
   burmese_name: string | null;
   geometry: string | null;
-  address: string | null;
-  description: string | null;
+  address: LocalizedTextPair;
+  description: LocalizedTextPair;
   location_type: string | null;
   image_urls?: string[] | null;
 }
 
-const API_BASE_URL =
-  import.meta.env.VITE_API_URL ?? "http://127.0.0.1:4000";
+type LocationEntry = {
+  location: CityLocation;
+  position: LatLngTuple;
+  category: LocationCategory;
+  addressText: string;
+  descriptionText: string;
+};
+
+const API_BASE_URL = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:4000";
 
 const LOCATION_CATEGORIES: Record<string, string[]> = {
   public_and_civic: [
@@ -179,6 +193,170 @@ function iconForLocationType(type?: string | null): LucideIcon {
   if (!type) return Building2;
   const normalized = type.toLowerCase();
   return LOCATION_TYPE_ICONS[normalized] ?? Building2;
+}
+
+function normalizeImageUrls(source: unknown): string[] | null {
+  if (!source) return null;
+  if (Array.isArray(source)) {
+    return source
+      .map((item) => item?.toString().trim())
+      .filter((item): item is string => Boolean(item));
+  }
+  if (typeof source === "string") {
+    const trimmed = source.trim();
+    if (!trimmed) return null;
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        return parsed
+          .map((item) => item?.toString().trim())
+          .filter((item): item is string => Boolean(item));
+      }
+    } catch {
+      // Not JSON, fall through to CSV handling
+    }
+    return trimmed
+      .split(",")
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0);
+  }
+  return null;
+}
+
+type CityApiPayload = Partial<{
+  id: unknown;
+  user_id: unknown;
+  burmese_name: unknown;
+  english_name: unknown;
+  name: unknown;
+  name_en: unknown;
+  name_mm: unknown;
+  address: unknown;
+  address_en: unknown;
+  address_mm: unknown;
+  address_json: unknown;
+  description: unknown;
+  description_en: unknown;
+  description_mm: unknown;
+  description_json: unknown;
+  english_description: unknown;
+  burmese_description: unknown;
+  geometry: unknown;
+  image_urls: unknown;
+}>;
+
+type LocationApiPayload = Partial<{
+  id: unknown;
+  city_id: unknown;
+  user_id: unknown;
+  burmese_name: unknown;
+  english_name: unknown;
+  name: unknown;
+  name_en: unknown;
+  name_mm: unknown;
+  address: unknown;
+  address_en: unknown;
+  address_mm: unknown;
+  address_json: unknown;
+  description: unknown;
+  description_en: unknown;
+  description_mm: unknown;
+  description_json: unknown;
+  english_description: unknown;
+  burmese_description: unknown;
+  location_type: unknown;
+  geometry: unknown;
+  image_urls: unknown;
+}>;
+
+function pickStringValue(...candidates: unknown[]): string | null {
+  for (const candidate of candidates) {
+    if (typeof candidate === "string") {
+      const trimmed = candidate.trim();
+      if (trimmed.length > 0) {
+        return trimmed;
+      }
+    }
+  }
+  return null;
+}
+
+function normalizeCityPayload(city: unknown): City {
+  const payload: CityApiPayload =
+    typeof city === "object" && city !== null ? (city as CityApiPayload) : {};
+
+  const address = normalizeLocalizedField({
+    value: payload.address,
+    value_en: payload.address_en,
+    value_mm: payload.address_mm,
+    json: payload.address_json,
+  });
+
+  const description = normalizeLocalizedField({
+    value: payload.description,
+    value_en: payload.description_en,
+    value_mm: payload.description_mm,
+    english: payload.english_description,
+    burmese: payload.burmese_description,
+    json: payload.description_json,
+  });
+
+  return {
+    id: payload.id ? String(payload.id) : "",
+    english_name:
+      pickStringValue(
+        payload.english_name,
+        payload.name_en,
+        payload.name
+      ) ?? "",
+    burmese_name:
+      pickStringValue(payload.burmese_name, payload.name_mm) ?? null,
+    geometry: typeof payload.geometry === "string" ? payload.geometry : null,
+    address,
+    description,
+    image_urls: normalizeImageUrls(payload.image_urls ?? null),
+  };
+}
+
+function normalizeLocationPayload(location: unknown): CityLocation {
+  const payload: LocationApiPayload =
+    typeof location === "object" && location !== null
+      ? (location as LocationApiPayload)
+      : {};
+
+  const address = normalizeLocalizedField({
+    value: payload.address,
+    value_en: payload.address_en,
+    value_mm: payload.address_mm,
+    json: payload.address_json,
+  });
+
+  const description = normalizeLocalizedField({
+    value: payload.description,
+    value_en: payload.description_en,
+    value_mm: payload.description_mm,
+    english: payload.english_description,
+    burmese: payload.burmese_description,
+    json: payload.description_json,
+  });
+
+  return {
+    id: payload.id ? String(payload.id) : "",
+    english_name:
+      pickStringValue(
+        payload.english_name,
+        payload.name_en,
+        payload.name
+      ) ?? "",
+    burmese_name:
+      pickStringValue(payload.burmese_name, payload.name_mm) ?? null,
+    geometry: typeof payload.geometry === "string" ? payload.geometry : null,
+    address,
+    description,
+    location_type:
+      typeof payload.location_type === "string" ? payload.location_type : null,
+    image_urls: normalizeImageUrls(payload.image_urls ?? null),
+  };
 }
 
 const CATEGORY_COLORS: Record<LocationCategory, string> = {
@@ -340,6 +518,61 @@ function LandmarkMap() {
   } | null>(null);
   const [baseLayerKey, setBaseLayerKey] = useState<BaseLayerKey>("imagery");
 
+  const { i18n } = useTranslation();
+  const activeLanguage = i18n.resolvedLanguage ?? i18n.language ?? "en";
+  const preferMm = activeLanguage.toLowerCase().startsWith("mm");
+
+  const getLocalizedText = useCallback(
+    (pair: LocalizedTextPair | undefined, fallback: string | null = null) =>
+      pickLocalizedText(activeLanguage, {
+        en: pair?.en ?? null,
+        mm: pair?.mm ?? null,
+        fallback,
+      }),
+    [activeLanguage]
+  );
+
+  const getNamePair = useCallback(
+    (
+      source: {
+        english_name?: unknown;
+        burmese_name?: unknown;
+        name?: unknown;
+        name_en?: unknown;
+        name_mm?: unknown;
+      },
+      fallback: string
+    ) => {
+      const names = normalizeLocalizedNames(source);
+      const primary = pickLocalizedText(activeLanguage, {
+        en: names.en,
+        mm: names.mm,
+        fallback,
+      });
+      const secondaryCandidate = preferMm ? names.en : names.mm;
+      const secondary =
+        secondaryCandidate && secondaryCandidate !== primary
+          ? secondaryCandidate
+          : null;
+      return { primary, secondary };
+    },
+    [activeLanguage, preferMm]
+  );
+
+  const getPrimaryName = useCallback(
+    (
+      source: {
+        english_name?: unknown;
+        burmese_name?: unknown;
+        name?: unknown;
+        name_en?: unknown;
+        name_mm?: unknown;
+      },
+      fallback: string
+    ) => getNamePair(source, fallback).primary,
+    [getNamePair]
+  );
+
   const getMarkerIcon = useMemo(() => {
     const cache = new Map<string, L.DivIcon>();
     const pinSize = 28;
@@ -442,7 +675,13 @@ function LandmarkMap() {
     fetch(`${API_BASE_URL}/cities`)
       .then((res) => res.json())
       .then((data) => {
-        const fetchedCities: City[] = data?.data ?? [];
+        const raw = data?.data;
+        const items = Array.isArray(raw)
+          ? raw
+          : raw && typeof raw === "object"
+          ? [raw]
+          : [];
+        const fetchedCities = items.map(normalizeCityPayload);
         setCities(fetchedCities);
       })
       .catch((err) => console.error(err));
@@ -465,6 +704,16 @@ function LandmarkMap() {
     }
   }, [cities, cityId, selectedCity]);
 
+  const selectedCityAddress = useMemo(() => {
+    if (!selectedCity) return "";
+    const fallback = selectedCity.address.en ?? selectedCity.address.mm ?? null;
+    return getLocalizedText(selectedCity.address, fallback).trim();
+  }, [selectedCity, getLocalizedText]);
+
+  const selectedCityDescription = useMemo(() => {
+    if (!selectedCity) return "";
+    return getLocalizedText(selectedCity.description, "").trim();
+  }, [selectedCity, getLocalizedText]);
   useEffect(() => {
     setActiveCategory("all");
     setActiveLocationId(null);
@@ -514,7 +763,14 @@ function LandmarkMap() {
     })
       .then((res) => res.json())
       .then((data) => {
-        setCityLocations(data?.data ?? []);
+        const raw = data?.data;
+        const items = Array.isArray(raw)
+          ? raw
+          : raw && typeof raw === "object"
+          ? [raw]
+          : [];
+        const fetchedLocations = items.map(normalizeLocationPayload);
+        setCityLocations(fetchedLocations);
       })
       .catch((err) => {
         if (err.name !== "AbortError") {
@@ -541,7 +797,7 @@ function LandmarkMap() {
       );
   }, [cities]);
 
-  const locationEntries = useMemo(() => {
+  const locationEntries = useMemo<LocationEntry[]>(() => {
     return cityLocations
       .map((location) => {
         const normalizedType = location.location_type?.toLowerCase() ?? null;
@@ -551,22 +807,26 @@ function LandmarkMap() {
 
         const position = parsePointGeometry(location.geometry);
         if (!position) return null;
+        const fallbackAddress =
+          location.address.en ?? location.address.mm ?? null;
+        const addressText = getLocalizedText(
+          location.address,
+          fallbackAddress
+        ).trim();
+        const descriptionText = getLocalizedText(
+          location.description,
+          ""
+        ).trim();
         return {
           location,
           position,
           category: categoryForLocationType(location.location_type),
+          addressText,
+          descriptionText,
         };
       })
-      .filter(
-        (
-          entry
-        ): entry is {
-          location: CityLocation;
-          position: LatLngTuple;
-          category: LocationCategory;
-        } => entry !== null
-      );
-  }, [cityLocations]);
+      .filter((entry): entry is LocationEntry => entry !== null);
+  }, [cityLocations, getLocalizedText]);
 
   const categoryCounts = useMemo(() => {
     const base = Object.keys(LOCATION_CATEGORIES).reduce(
@@ -696,6 +956,12 @@ function LandmarkMap() {
     try {
       const [startLat, startLon] = userPosition;
       const [endLat, endLon] = target.position;
+      const destinationName = getPrimaryName(
+        target.location,
+        target.location.english_name ||
+          target.location.burmese_name ||
+          target.location.id
+      );
 
       const token =
         typeof window !== "undefined"
@@ -714,10 +980,7 @@ function LandmarkMap() {
           end_lon: endLon,
           end_lat: endLat,
           optimization: "shortest",
-          end_name:
-            target.location.english_name ??
-            target.location.burmese_name ??
-            "Destination",
+          end_name: destinationName,
         }),
       });
 
@@ -779,6 +1042,24 @@ function LandmarkMap() {
     ? USER_LOCATION_ZOOM
     : DEFAULT_ZOOM;
 
+  const selectedCityNames = selectedCity
+    ? getNamePair(
+        selectedCity,
+        selectedCity.english_name ||
+          selectedCity.burmese_name ||
+          selectedCity.id
+      )
+    : null;
+
+  const activeLocationNames = activeLocation
+    ? getNamePair(
+        activeLocation.location,
+        activeLocation.location.english_name ||
+          activeLocation.location.burmese_name ||
+          activeLocation.location.id
+      )
+    : null;
+
   return (
     <div className="min-h-screen flex flex-col relative">
       <Header />
@@ -805,6 +1086,15 @@ function LandmarkMap() {
                 <ul className="divide-y">
                   {cities.map((city) => {
                     const isActive = city.id === selectedCity?.id;
+                    const { primary: cityName, secondary: citySecondary } =
+                      getNamePair(
+                        city,
+                        city.english_name || city.burmese_name || city.id
+                      );
+                    const cityAddress = getLocalizedText(
+                      city.address,
+                      city.address.en ?? city.address.mm ?? null
+                    ).trim();
                     return (
                       <li key={city.id}>
                         <button
@@ -818,16 +1108,16 @@ function LandmarkMap() {
                           )}
                         >
                           <span className="block text-sm font-semibold text-foreground">
-                            {city.english_name}
+                            {cityName}
                           </span>
-                          {city.burmese_name ? (
+                          {citySecondary ? (
                             <span className="block text-xs text-muted-foreground">
-                              {city.burmese_name}
+                              {citySecondary}
                             </span>
                           ) : null}
-                          {city.address ? (
+                          {cityAddress ? (
                             <span className="block mt-1 text-xs text-muted-foreground">
-                              {city.address}
+                              {cityAddress}
                             </span>
                           ) : null}
                         </button>
@@ -843,10 +1133,10 @@ function LandmarkMap() {
                   <div className="flex justify-between items-center gap-3">
                     <div className="items-center gap-2">
                       <h3 className="text-base font-semibold text-foreground">
-                        {selectedCity.english_name}
+                        {selectedCityNames?.primary ?? selectedCity.id}
                       </h3>
-                      {selectedCity.burmese_name ? (
-                        <p>{selectedCity.burmese_name}</p>
+                      {selectedCityNames?.secondary ? (
+                        <p>{selectedCityNames.secondary}</p>
                       ) : null}
                     </div>
                     <a
@@ -856,18 +1146,16 @@ function LandmarkMap() {
                       View Details
                     </a>
                   </div>
-                  {selectedCity.address ? (
+                  {selectedCityAddress ? (
                     <p>
                       <span className="font-medium text-foreground">
                         Address:{" "}
                       </span>
-                      {selectedCity.address}
+                      {selectedCityAddress}
                     </p>
                   ) : null}
-                  {selectedCity.description ? (
-                    <p className="leading-relaxed">
-                      {selectedCity.description}
-                    </p>
+                  {selectedCityDescription ? (
+                    <p className="leading-relaxed">{selectedCityDescription}</p>
                   ) : (
                     <p className="italic">No description provided.</p>
                   )}
@@ -882,7 +1170,7 @@ function LandmarkMap() {
         </aside>
 
         <section className="order-1 lg:order-2 relative">
-          <div className="pointer-events-none absolute right-6 top-6 z-50 flex gap-2 text-xs">
+          <div className="pointer-events-none absolute right-6 top-6 z-[1000] flex gap-2 text-xs">
             {Object.entries(BASE_LAYERS).map(([key, layer]) => {
               const typedKey = key as BaseLayerKey;
               const isActive = baseLayerKey === typedKey;
@@ -938,129 +1226,157 @@ function LandmarkMap() {
               />
             ) : null}
             {!selectedCity
-              ? cityEntries.map(({ city, position }) => (
-                  <Marker
-                    key={city.id}
-                    position={position}
-                    eventHandlers={{
-                      click: () => handleSelectCity(city),
-                    }}
-                  >
-                    <Popup>
-                      <div className="space-y-1">
-                        <strong>{city.english_name}</strong>
-                        {city.burmese_name ? (
-                          <div>{city.burmese_name}</div>
-                        ) : null}
-                        {city.address ? <div>{city.address}</div> : null}
-                      </div>
-                    </Popup>
-                  </Marker>
-                ))
-              : null}
-
-            {selectedCity
-              ? visibleMapLocations.map(({ location, position, category }) => {
-                  const markerColor = CATEGORY_COLORS[category];
-                  const Icon = iconForLocationType(location.location_type);
-                  const typeKey =
-                    location.location_type?.toLowerCase() ?? "unknown";
-                  const markerIcon = getMarkerIcon(category, Icon, typeKey);
-
+              ? cityEntries.map(({ city, position }) => {
+                  const { primary, secondary } = getNamePair(
+                    city,
+                    city.english_name || city.burmese_name || city.id
+                  );
+                  const cityAddress = getLocalizedText(
+                    city.address,
+                    city.address.en ?? city.address.mm ?? null
+                  ).trim();
                   return (
                     <Marker
-                      key={location.id}
+                      key={city.id}
                       position={position}
-                      icon={markerIcon}
                       eventHandlers={{
-                        click: () => handleSelectLocation(location.id),
-                      }}
-                      ref={(instance) => {
-                        if (instance) {
-                          markerRefs.current.set(location.id, instance);
-                        } else {
-                          markerRefs.current.delete(location.id);
-                        }
+                        click: () => handleSelectCity(city),
                       }}
                     >
                       <Popup>
-                        <div className="w-[240px] rounded-2xl border border-slate-200 bg-white p-3 shadow-lg">
-                          <div className="space-y-2 text-sm text-slate-700">
-                            <div className="flex items-start gap-2">
-                              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-900/90 text-white shadow-md">
-                                <Icon className="h-4 w-4" color={markerColor} />
-                              </div>
-                              <div className="space-y-1">
-                                <div className="text-sm font-semibold text-slate-900">
-                                  {location.english_name}
-                                </div>
-                                {location.burmese_name ? (
-                                  <div className="text-xs text-slate-500">
-                                    {location.burmese_name}
-                                  </div>
-                                ) : null}
-                                {location.location_type ? (
-                                  <div className="text-[11px] uppercase tracking-wide text-slate-400">
-                                    {location.location_type.replaceAll(
-                                      "_",
-                                      " "
-                                    )}
-                                  </div>
-                                ) : null}
-                              </div>
-                            </div>
-                            {location.address ? (
-                              <div className="rounded-lg bg-slate-50 p-2 text-xs text-slate-600">
-                                {location.address}
-                              </div>
-                            ) : null}
-                            {location.description ? (
-                              <div className="line-clamp-3 text-xs text-slate-500">
-                                {location.description}
-                              </div>
-                            ) : null}
-                          </div>
-                          <div className="mt-3 flex flex-col gap-2 text-xs font-medium">
-                            <button
-                              type="button"
-                              onClick={(event) => {
-                                event.preventDefault();
-                                event.stopPropagation();
-                                handlePlanRoute(location.id);
-                              }}
-                              disabled={
-                                isFetchingRoute &&
-                                activeLocationId === location.id
-                              }
-                              className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-blue-600 px-4 py-2 text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
-                            >
-                              {isFetchingRoute &&
-                              activeLocationId === location.id ? (
-                                <span className="inline-flex items-center gap-2 text-xs">
-                                  <span className="h-3 w-3 animate-spin rounded-full border-2 border-white border-r-transparent" />
-                                  Planning…
-                                </span>
-                              ) : (
-                                "Plan route"
-                              )}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={(event) => {
-                                event.preventDefault();
-                                event.stopPropagation();
-                                handleCancelSelection();
-                              }}
-                              className="inline-flex w-full items-center justify-center gap-2 rounded-full border border-slate-200 px-4 py-2 text-slate-600 transition hover:bg-slate-50"
-                            >
-                              Cancel
-                            </button>
-                          </div>
+                        <div className="space-y-1">
+                          <strong>{primary}</strong>
+                          {secondary ? <div>{secondary}</div> : null}
+                          {cityAddress ? <div>{cityAddress}</div> : null}
                         </div>
                       </Popup>
                     </Marker>
                   );
                 })
+              : null}
+
+            {selectedCity
+              ? visibleMapLocations.map(
+                  ({
+                    location,
+                    position,
+                    category,
+                    addressText,
+                    descriptionText,
+                  }) => {
+                    const markerColor = CATEGORY_COLORS[category];
+                    const Icon = iconForLocationType(location.location_type);
+                    const typeKey =
+                      location.location_type?.toLowerCase() ?? "unknown";
+                    const markerIcon = getMarkerIcon(category, Icon, typeKey);
+                    const {
+                      primary: locationName,
+                      secondary: locationSecondary,
+                    } = getNamePair(
+                      location,
+                      location.english_name ||
+                        location.burmese_name ||
+                        location.id
+                    );
+
+                    return (
+                      <Marker
+                        key={location.id}
+                        position={position}
+                        icon={markerIcon}
+                        eventHandlers={{
+                          click: () => handleSelectLocation(location.id),
+                        }}
+                        ref={(instance) => {
+                          if (instance) {
+                            markerRefs.current.set(location.id, instance);
+                          } else {
+                            markerRefs.current.delete(location.id);
+                          }
+                        }}
+                      >
+                        <Popup>
+                          <div className="w-[240px] rounded-2xl border border-slate-200 bg-white p-3 shadow-lg">
+                            <div className="space-y-2 text-sm text-slate-700">
+                              <div className="flex items-start gap-2">
+                                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-900/90 text-white shadow-md">
+                                  <Icon
+                                    className="h-4 w-4"
+                                    color={markerColor}
+                                  />
+                                </div>
+                                <div className="space-y-1">
+                                  <div className="text-sm font-semibold text-slate-900">
+                                    {locationName}
+                                  </div>
+                                  {locationSecondary ? (
+                                    <div className="text-xs text-slate-500">
+                                      {locationSecondary}
+                                    </div>
+                                  ) : null}
+                                  {location.location_type ? (
+                                    <div className="text-[11px] uppercase tracking-wide text-slate-400">
+                                      {location.location_type.replaceAll(
+                                        "_",
+                                        " "
+                                      )}
+                                    </div>
+                                  ) : null}
+                                </div>
+                              </div>
+                              {addressText ? (
+                                <div className="rounded-lg bg-slate-50 p-2 text-xs text-slate-600">
+                                  {addressText}
+                                </div>
+                              ) : null}
+                              {descriptionText ? (
+                                <div className="line-clamp-3 text-xs text-slate-500">
+                                  {descriptionText}
+                                </div>
+                              ) : null}
+                            </div>
+                            <div className="mt-3 flex flex-col gap-2 text-xs font-medium">
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  handlePlanRoute(location.id);
+                                }}
+                                disabled={
+                                  isFetchingRoute &&
+                                  activeLocationId === location.id
+                                }
+                                className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-blue-600 px-4 py-2 text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                {isFetchingRoute &&
+                                activeLocationId === location.id ? (
+                                  <span className="inline-flex items-center gap-2 text-xs">
+                                    <span className="h-3 w-3 animate-spin rounded-full border-2 border-white border-r-transparent" />
+                                    Planning…
+                                  </span>
+                                ) : (
+                                  "Plan route"
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  handleCancelSelection();
+                                }}
+                                className="inline-flex w-full items-center justify-center gap-2 rounded-full border border-slate-200 px-4 py-2 text-slate-600 transition hover:bg-slate-50"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        </Popup>
+                      </Marker>
+                    );
+                  }
+                )
               : null}
           </MapContainer>
         </section>
@@ -1081,7 +1397,7 @@ function LandmarkMap() {
                         ? "All"
                         : category.replaceAll("_", " ");
                     const count = categoryCounts[category] ?? 0;
-                    const isActive = activeCategory === category;
+                    const isActiveCategory = activeCategory === category;
                     const markerColor =
                       category === "all"
                         ? undefined
@@ -1094,7 +1410,7 @@ function LandmarkMap() {
                         onClick={() => setActiveCategory(category)}
                         className={cn(
                           "inline-flex items-center justify-between gap-3 rounded-full border px-3 py-1 text-xs font-medium capitalize transition-colors",
-                          isActive
+                          isActiveCategory
                             ? "bg-primary text-primary-foreground border-primary"
                             : "bg-background hover:bg-muted border-border text-primary"
                         )}
@@ -1122,8 +1438,8 @@ function LandmarkMap() {
                 </div>
               ) : locationEntries.length === 0 ? (
                 <div className="px-5 py-10 text-center text-sm text-muted-foreground">
-                  No locations have been added for {selectedCity.english_name}{" "}
-                  yet.
+                  No locations have been added for{" "}
+                  {selectedCityNames?.primary ?? selectedCity.id} yet.
                 </div>
               ) : filteredLocations.length === 0 ? (
                 <div className="px-5 py-10 text-center text-sm text-muted-foreground">
@@ -1138,6 +1454,12 @@ function LandmarkMap() {
                       : "Unknown";
                     const markerColor = CATEGORY_COLORS[category];
                     const Icon = iconForLocationType(location.location_type);
+                    const { primary: locationName } = getNamePair(
+                      location,
+                      location.english_name ||
+                        location.burmese_name ||
+                        location.id
+                    );
 
                     return (
                       <li key={location.id}>
@@ -1153,7 +1475,7 @@ function LandmarkMap() {
                         >
                           <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
                             <Icon className="h-4 w-4" color={markerColor} />
-                            <span>{location.english_name}</span>
+                            <span>{locationName}</span>
                           </span>
                           <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
                             {typeLabel}
@@ -1181,10 +1503,11 @@ function LandmarkMap() {
                     </div>
                     <div>
                       <h3 className="text-base font-semibold text-foreground">
-                        {activeLocation.location.english_name}
+                        {activeLocationNames?.primary ??
+                          activeLocation.location.id}
                       </h3>
-                      {activeLocation.location.burmese_name ? (
-                        <p>{activeLocation.location.burmese_name}</p>
+                      {activeLocationNames?.secondary ? (
+                        <p>{activeLocationNames.secondary}</p>
                       ) : null}
                     </div>
                   </div>
@@ -1224,7 +1547,10 @@ function LandmarkMap() {
                       <div className="overflow-hidden rounded-lg border bg-muted/20">
                         <img
                           src={activeLocationImages[0]}
-                          alt={`${activeLocation.location.english_name} preview`}
+                          alt={`${
+                            activeLocationNames?.primary ??
+                            activeLocation.location.id
+                          } preview`}
                           className="h-40 w-full object-cover"
                           loading="lazy"
                         />
@@ -1236,7 +1562,8 @@ function LandmarkMap() {
                             key={`${activeLocation.location.id}-thumb-${index}`}
                             src={url}
                             alt={`${
-                              activeLocation.location.english_name
+                              activeLocationNames?.primary ??
+                              activeLocation.location.id
                             } thumbnail ${index + 1}`}
                             className="h-16 w-24 flex-shrink-0 rounded-md object-cover"
                             loading="lazy"
@@ -1247,17 +1574,17 @@ function LandmarkMap() {
                       <p>No images available!</p>
                     )}
                   </div>
-                  {activeLocation.location.address ? (
+                  {activeLocation.addressText ? (
                     <p>
                       <span className="font-medium text-foreground">
                         Address:{" "}
                       </span>
-                      {activeLocation.location.address}
+                      {activeLocation.addressText}
                     </p>
                   ) : null}
-                  {activeLocation.location.description ? (
+                  {activeLocation.descriptionText ? (
                     <p className="leading-relaxed">
-                      {activeLocation.location.description}
+                      {activeLocation.descriptionText}
                     </p>
                   ) : (
                     <p className="italic">No description provided.</p>

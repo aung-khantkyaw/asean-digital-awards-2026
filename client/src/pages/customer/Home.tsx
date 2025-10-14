@@ -1,11 +1,9 @@
-import { Header } from "./components/header";
+import Header from "@/components/common/Header";
 import { useTranslation } from "react-i18next";
 import { MapContainer, TileLayer } from "react-leaflet";
 import type { LatLngTuple } from "leaflet";
-// import { Link } from "react-router-dom";
-import "./home.css";
+import "@/assets/styles/home.css";
 
-// Home page redesigned: cleaner hero, contextual message for authenticated users.
 export default function Home() {
   const mapCenter: LatLngTuple = [16.8394054, 96.0167634];
   const { t } = useTranslation();
@@ -107,70 +105,15 @@ export default function Home() {
                     </p>
                   </div>
                 </div>
-                <a href="/landmark-map" className="mt-12 w-full bg-blue-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-blue-700 transition duration-300 flex items-center justify-center text-lg">
+                <a
+                  href="/landmark-map"
+                  className="mt-12 w-full bg-blue-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-blue-700 transition duration-300 flex items-center justify-center text-lg"
+                >
                   <span className="material-icons mr-2">explore</span> Start
                   Your Journey
                 </a>
               </main>
             </div>
-
-            {/* <div className="mt-16">
-              <h2 className="text-3xl font-bold text-white text-center mb-8">
-                Highlighted Locations
-              </h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                <div className="bg-white/5 rounded-2xl overflow-hidden group border border-white/10">
-                  <div className="relative h-60 overflow-hidden">
-                    <img
-                      alt="Maubin"
-                      className="w-full h-full object-cover transition-transform durations-500 group-hover:scale-110"
-                      src="./img/bagan.jpg"
-                    />
-                  </div>
-                  <div className="p-6">
-                    <h3 className="text-2xl font-bold text-white mb-2">
-                      Maubin
-                    </h3>
-                    <p className="text-gray-300 mb-4">
-                      A tranquil town in the Ayeyearwady Delta, known for it's
-                      scenic river views.
-                    </p>
-                    <Link
-                      className="inline-flex items-center bg-green-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-green-700 transition duration-300"
-                      to="/maubin/details"
-                    >
-                      <span className="material-icons mr-2">directions</span>{" "}
-                      Route
-                    </Link>
-                  </div>
-                </div>
-                <div className="bg-white/5 rounded-2xl overflow-hidden group border border-white/10">
-                  <div className="relative h-60 overflow-hidden">
-                    <img
-                      alt="taunggyi"
-                      className="w-full h-full object-cover transition-transform durations-500 group-hover:scale-110"
-                      src="./img/bagan.jpg"
-                    />
-                  </div>
-                  <div className="p-6">
-                    <h3 className="text-2xl font-bold text-white mb-2">
-                      Taunggyi
-                    </h3>
-                    <p className="text-gray-300 mb-4">
-                      The capital of Shan State, famous for it's vibrant hot air
-                      balloon festival.
-                    </p>
-                    <Link
-                      className="inline-flex items-center bg-green-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-green-700 transition duration-300"
-                      to="/taunggyi/details"
-                    >
-                      <span className="material-icons mr-2">directions</span>{" "}
-                      Route
-                    </Link>
-                  </div>
-                </div>
-              </div>
-            </div> */}
           </div>
         </div>
       </main>
