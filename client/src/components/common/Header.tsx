@@ -210,9 +210,16 @@ export const Header = () => {
       },
     ];
 
-    if (userRole === "admin" || userRole === "collaborator") {
+    if (userRole === "admin") {
       links.push({
         to: "/admin/dashboard",
+        label: t("nav.dashboard", { defaultValue: "Dashboard" }),
+      });
+    }
+
+    if (userRole === "collaborator") {
+      links.push({
+        to: "/collaborator/dashboard",
         label: t("nav.dashboard", { defaultValue: "Dashboard" }),
       });
     }

@@ -2162,7 +2162,7 @@ def admin_create_city():
             if uploaded_urls:
                 image_urls_value = (image_urls_value or []) + uploaded_urls
 
-    is_active_value = coerce_boolean(data.get('is_active'))
+    is_active_value = True
 
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
@@ -2437,8 +2437,8 @@ def admin_create_city_detail():
     try:
         cur.execute(
             """
-                INSERT INTO city_details (city_id, user_id, predefined_title, subtitle, body, image_urls)
-                VALUES (%s, %s, %s, %s, %s, %s)
+                INSERT INTO city_details (city_id, user_id, predefined_title, subtitle, body, image_urls, is_active)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
                 RETURNING *;
             """,
             (
@@ -2448,6 +2448,7 @@ def admin_create_city_detail():
                 psycopg2.extras.Json(subtitle_payload) if subtitle_payload else None,
                 psycopg2.extras.Json(body_payload),
                 image_urls_value,
+                True,
             ),
         )
         conn.commit()
@@ -2533,6 +2534,11 @@ def admin_update_city_detail(detail_id):
     if image_urls_present:
         updates.append("image_urls = %s")
         params.append(image_urls_value)
+    
+    if 'is_active' in data:
+        is_active_value = coerce_boolean(data.get('is_active'))
+        updates.append("is_active = %s")
+        params.append(is_active_value)
     
     if not updates:
         return jsonify({"is_success": False, "msg": "No valid fields provided"}), 400
@@ -2626,8 +2632,8 @@ def admin_create_location():
     try:
         cur.execute(
             f"""
-                INSERT INTO locations (city_id, user_id, name, address, description, image_urls, location_type, geom)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, ST_GeogFromText(%s))
+                INSERT INTO locations (city_id, user_id, name, address, description, image_urls, location_type, geom, is_active)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, ST_GeogFromText(%s), %s)
                 RETURNING id,
                           city_id,
                           user_id,
@@ -2636,7 +2642,8 @@ def admin_create_location():
                           description,
                           image_urls,
                           location_type,
-                          ST_AsText(geom) AS geometry;
+                          ST_AsText(geom) AS geometry,
+                          is_active;
             """,
             (
                 data.get('city_id'),
@@ -2647,6 +2654,7 @@ def admin_create_location():
                 image_urls_value,
                 data.get('location_type'),
                 geometry_wkt,
+                True,
             ),
         )
         conn.commit()
@@ -2729,6 +2737,11 @@ def admin_update_location(location_id):
         updates.append("geom = %s")
         params.append(None)
 
+    if 'is_active' in data:
+        is_active_value = coerce_boolean(data.get('is_active'))
+        updates.append("is_active = %s")
+        params.append(is_active_value)
+
     if not updates:
         return jsonify({"is_success": False, "msg": "No valid fields provided"}), 400
 
@@ -2738,7 +2751,7 @@ def admin_update_location(location_id):
     cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
     try:
         update_clause = ", ".join(updates)
-        cur.execute(f"UPDATE locations SET {update_clause} WHERE id = %s RETURNING id, city_id, user_id, name, address, description, image_urls, location_type, ST_AsText(geom) AS geometry;", tuple(params))
+        cur.execute(f"UPDATE locations SET {update_clause} WHERE id = %s RETURNING id, city_id, user_id, name, address, description, image_urls, location_type, ST_AsText(geom) AS geometry, is_active;", tuple(params))
         updated = cur.fetchone()
         if not updated:
             return jsonify({"is_success": False, "msg": "Location not found"}), 404
@@ -2820,9 +2833,10 @@ def admin_create_road():
                     road_type,
                     is_oneway,
                     length_m,
-                    geom
+                    geom,
+                    is_active
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, ST_GeogFromText(%s))
+                VALUES (%s, %s, %s, %s, %s, %s, ST_GeogFromText(%s), %s)
                 RETURNING id,
                           city_id,
                           user_id,
@@ -2830,7 +2844,8 @@ def admin_create_road():
                           road_type,
                           is_oneway,
                           length_m,
-                          ST_AsText(geom) AS geometry;
+                          ST_AsText(geom) AS geometry,
+                          is_active
             """,
             (
                 data.get('city_id'),
@@ -2840,6 +2855,7 @@ def admin_create_road():
                 is_oneway_value,
                 segment_lengths,
                 geometry_wkt,
+                True,
             ),
         )
         conn.commit()
@@ -2863,10 +2879,13 @@ def admin_update_road(road_id):
     updates = []
     params = []
 
-    for field in ['city_id', 'user_id', 'road_type', 'is_oneway']:
+    for field in ['city_id', 'user_id', 'road_type', 'is_oneway', 'is_active']:
         if field in data:
             updates.append(f"{field} = %s")
-            value = coerce_boolean(data.get(field)) if field == 'is_oneway' else data.get(field)
+            if field == 'is_oneway' or field == 'is_active':
+                value = coerce_boolean(data.get(field))
+            else:
+                value = data.get(field)
             params.append(value)
 
     if has_jsonb_payload(data, 'name', legacy_keys=('burmese_name', 'english_name')):
@@ -2902,7 +2921,7 @@ def admin_update_road(road_id):
     cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
     try:
         update_clause = ", ".join(updates)
-        cur.execute(f"UPDATE roads SET {update_clause} WHERE id = %s RETURNING id, city_id, user_id, name, road_type, is_oneway, length_m, ST_AsText(geom) AS geometry;", tuple(params))
+        cur.execute(f"UPDATE roads SET {update_clause} WHERE id = %s RETURNING id, city_id, user_id, name, road_type, is_oneway, length_m, ST_AsText(geom) AS geometry, is_active;", tuple(params))
         updated = cur.fetchone()
         if not updated:
             return jsonify({"is_success": False, "msg": "Road not found"}), 404

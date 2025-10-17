@@ -13,6 +13,7 @@ import LocationTable from "@/components/admin/location-table";
 import RoadTable from "@/components/admin/road-table";
 import UserTable from "@/components/admin/user-table";
 import RoadIntersectionMap from "@/components/road-intersection-map";
+import { InactiveContentMapViewer } from "@/components/admin/inactive-content-map-viewer";
 import { computeSegmentLengths } from "@/lib/utils";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:4000";
@@ -589,6 +590,12 @@ export default function AdminDashboard() {
   const [revokingCollaboratorId, setRevokingCollaboratorId] = useState<
     string | null
   >(null);
+
+  // Map viewer state for inactive content
+  const [mapViewerContent, setMapViewerContent] = useState<{
+    data: AdminCity | AdminLocation | AdminRoad;
+    type: "city" | "location" | "road";
+  } | null>(null);
 
   useEffect(() => {
     const storedToken = localStorage.getItem("access_token");
@@ -4613,6 +4620,31 @@ export default function AdminDashboard() {
                                     <button
                                       type="button"
                                       onClick={() =>
+                                        setMapViewerContent({
+                                          data: city,
+                                          type: "city",
+                                        })
+                                      }
+                                      className="inline-flex items-center gap-1.5 rounded-lg bg-blue-500/10 px-3 py-1.5 text-xs font-semibold text-blue-300 transition hover:bg-blue-500/20 hover:text-blue-200 border border-blue-500/30"
+                                    >
+                                      <svg
+                                        className="h-3.5 w-3.5"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                      >
+                                        <path
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                          strokeWidth={2}
+                                          d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"
+                                        />
+                                      </svg>
+                                      View Map
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
                                         handleAcceptInactiveCity(city.id)
                                       }
                                       className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-300 transition hover:bg-emerald-500/20 hover:text-emerald-200 border border-emerald-500/30"
@@ -4947,6 +4979,31 @@ export default function AdminDashboard() {
                                     <button
                                       type="button"
                                       onClick={() =>
+                                        setMapViewerContent({
+                                          data: location,
+                                          type: "location",
+                                        })
+                                      }
+                                      className="inline-flex items-center gap-1.5 rounded-lg bg-blue-500/10 px-3 py-1.5 text-xs font-semibold text-blue-300 transition hover:bg-blue-500/20 hover:text-blue-200 border border-blue-500/30"
+                                    >
+                                      <svg
+                                        className="h-3.5 w-3.5"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                      >
+                                        <path
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                          strokeWidth={2}
+                                          d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"
+                                        />
+                                      </svg>
+                                      View Map
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
                                         handleAcceptInactiveLocation(
                                           location.id
                                         )
@@ -5114,6 +5171,31 @@ export default function AdminDashboard() {
                               <td className="px-4 py-3">
                                 <div className="flex items-center justify-end gap-2">
                                   <button
+                                    type="button"
+                                    onClick={() =>
+                                      setMapViewerContent({
+                                        data: road,
+                                        type: "road",
+                                      })
+                                    }
+                                    className="inline-flex items-center gap-1.5 rounded-lg bg-blue-500/10 px-3 py-1.5 text-xs font-semibold text-blue-300 transition hover:bg-blue-500/20 hover:text-blue-200 border border-blue-500/30"
+                                  >
+                                    <svg
+                                      className="h-3.5 w-3.5"
+                                      fill="none"
+                                      viewBox="0 0 24 24"
+                                      stroke="currentColor"
+                                    >
+                                      <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        strokeWidth={2}
+                                        d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"
+                                      />
+                                    </svg>
+                                    View Map
+                                  </button>
+                                  <button
                                     onClick={() =>
                                       handleAcceptInactiveRoad(road.id)
                                     }
@@ -5141,6 +5223,56 @@ export default function AdminDashboard() {
           </main>
         </div>
       </div>
+
+      {/* Inactive Content Map Viewer Modal */}
+      {mapViewerContent && (
+        <InactiveContentMapViewer
+          content={mapViewerContent.data}
+          type={mapViewerContent.type}
+          submitter={
+            mapViewerContent.data.user_id
+              ? (userLookupById[mapViewerContent.data.user_id] as {
+                  id: string;
+                  username: string | null;
+                  email: string | null;
+                }) || null
+              : null
+          }
+          cityName={
+            mapViewerContent.type !== "city" &&
+            (mapViewerContent.data as AdminLocation | AdminRoad).city_id
+              ? cityLabelById[
+                  (mapViewerContent.data as AdminLocation | AdminRoad).city_id!
+                ]
+              : undefined
+          }
+          onClose={() => setMapViewerContent(null)}
+          onAccept={async () => {
+            if (mapViewerContent.type === "city") {
+              await handleAcceptInactiveCity(mapViewerContent.data.id);
+              setMapViewerContent(null);
+            } else if (mapViewerContent.type === "location") {
+              await handleAcceptInactiveLocation(mapViewerContent.data.id);
+              setMapViewerContent(null);
+            } else if (mapViewerContent.type === "road") {
+              await handleAcceptInactiveRoad(mapViewerContent.data.id);
+              setMapViewerContent(null);
+            }
+          }}
+          onReject={async () => {
+            if (mapViewerContent.type === "city") {
+              await handleCityDelete(mapViewerContent.data.id);
+              setMapViewerContent(null);
+            } else if (mapViewerContent.type === "location") {
+              await handleLocationDelete(mapViewerContent.data.id);
+              setMapViewerContent(null);
+            } else if (mapViewerContent.type === "road") {
+              await handleRoadDelete(mapViewerContent.data.id);
+              setMapViewerContent(null);
+            }
+          }}
+        />
+      )}
     </div>
   );
 }

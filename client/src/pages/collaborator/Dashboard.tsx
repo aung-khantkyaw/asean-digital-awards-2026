@@ -86,8 +86,8 @@ type AdminLocation = {
   id: string;
   city_id: string | null;
   user_id: string | null;
-  burmese_name: string | null;
-  english_name: string | null;
+  name_en: string | null;
+  name_mm: string | null;
   address_mm: string | null;
   address_en: string | null;
   description_mm: string | null;
@@ -103,8 +103,9 @@ type AdminRoad = {
   id: string;
   city_id: string | null;
   user_id: string | null;
-  burmese_name: string | null;
-  english_name: string | null;
+  // Backend returns name_mm and name_en for roads (not name_en/name_mm)
+  name_mm?: string | null;
+  name_en?: string | null;
   intersection_ids: string[] | null;
   road_type?: string | null;
   is_oneway?: boolean | null;
@@ -155,8 +156,8 @@ type ApiEnvelope<T> = {
 
 type CityFormState = {
   id: string | null;
-  burmese_name: string;
-  english_name: string;
+  name_en: string;
+  name_mm: string;
   address_en: string;
   address_mm: string;
   description_en: string;
@@ -170,8 +171,8 @@ type CityFormState = {
 type LocationFormState = {
   id: string | null;
   city_id: string;
-  burmese_name: string;
-  english_name: string;
+  name_en: string;
+  name_mm: string;
   address_en: string;
   address_mm: string;
   description_en: string;
@@ -187,8 +188,8 @@ type RoadFormState = {
   id: string | null;
   city_id: string;
   user_id: string;
-  burmese_name: string;
-  english_name: string;
+  name_en: string;
+  name_mm: string;
   road_type: string;
   is_oneway: boolean;
   intersection_ids: string[];
@@ -209,8 +210,8 @@ type CityDetailFormState = {
 
 const initialCityForm: CityFormState = {
   id: null,
-  burmese_name: "",
-  english_name: "",
+  name_en: "",
+  name_mm: "",
   address_en: "",
   address_mm: "",
   description_en: "",
@@ -224,8 +225,8 @@ const initialCityForm: CityFormState = {
 const initialLocationForm: LocationFormState = {
   id: null,
   city_id: "",
-  burmese_name: "",
-  english_name: "",
+  name_en: "",
+  name_mm: "",
   address_en: "",
   address_mm: "",
   description_en: "",
@@ -241,8 +242,8 @@ const initialRoadForm: RoadFormState = {
   id: null,
   city_id: "",
   user_id: "",
-  burmese_name: "",
-  english_name: "",
+  name_en: "",
+  name_mm: "",
   road_type: "",
   is_oneway: false,
   intersection_ids: [],
@@ -647,16 +648,17 @@ export default function CollaboratorDashboard() {
   const myLocationsForTable = useMemo(() => {
     return myLocations.map((location) => ({
       ...location,
-      name_en: location.english_name,
-      name_mm: location.burmese_name,
+      name_en: location.name_en,
+      name_mm: location.name_mm,
     }));
   }, [myLocations]);
 
   const myRoadsForTable = useMemo(() => {
     return myRoads.map((road) => ({
       ...road,
-      name_en: road.english_name,
-      name_mm: road.burmese_name,
+      // Backend returns name_mm and name_en directly for roads, not name_en/name_mm
+      name_en: road.name_en || road.name_mm,
+      name_mm: road.name_mm || road.name_en,
     }));
   }, [myRoads]);
 
@@ -682,16 +684,17 @@ export default function CollaboratorDashboard() {
   const myInactiveLocationsForTable = useMemo(() => {
     return myInactiveLocations.map((location) => ({
       ...location,
-      name_en: location.english_name,
-      name_mm: location.burmese_name,
+      name_en: location.name_mm,
+      name_mm: location.name_en,
     }));
   }, [myInactiveLocations]);
 
   const myInactiveRoadsForTable = useMemo(() => {
     return myInactiveRoads.map((road) => ({
       ...road,
-      name_en: road.english_name,
-      name_mm: road.burmese_name,
+      // Backend returns name_mm and name_en directly for roads, not name_en/name_mm
+      name_en: road.name_en || road.name_mm,
+      name_mm: road.name_mm || road.name_en,
     }));
   }, [myInactiveRoads]);
 
@@ -869,7 +872,7 @@ export default function CollaboratorDashboard() {
 
         return {
           id: road.id,
-          name: road.english_name || road.burmese_name || road.id,
+          name: road.name_mm || road.name_en || road.id,
           positions,
           lengthMeters: 0,
         };
@@ -969,8 +972,8 @@ export default function CollaboratorDashboard() {
     }
 
     const formData = new FormData();
-    formData.append("name_en", cityForm.english_name.trim());
-    formData.append("name_mm", cityForm.burmese_name);
+    formData.append("name_en", cityForm.name_mm.trim());
+    formData.append("name_mm", cityForm.name_en);
     formData.append("user_id", activeUserId);
     formData.append("address_en", cityForm.address_en);
     formData.append("address_mm", cityForm.address_mm);
@@ -1054,8 +1057,8 @@ export default function CollaboratorDashboard() {
     const formData = new FormData();
     formData.append("city_id", locationForm.city_id);
     formData.append("user_id", activeUserId);
-    formData.append("name_mm", locationForm.burmese_name);
-    formData.append("name_en", locationForm.english_name);
+    formData.append("name_mm", locationForm.name_en);
+    formData.append("name_en", locationForm.name_mm);
     formData.append("address_en", locationForm.address_en);
     formData.append("address_mm", locationForm.address_mm);
     formData.append("description_en", locationForm.description_en);
@@ -1172,8 +1175,8 @@ export default function CollaboratorDashboard() {
     const payload: Record<string, unknown> = {
       city_id: roadForm.city_id,
       user_id: toNullable(roadForm.user_id),
-      name_mm: toNullable(roadForm.burmese_name),
-      name_en: toNullable(roadForm.english_name),
+      name_mm: toNullable(roadForm.name_en),
+      name_en: toNullable(roadForm.name_mm),
       road_type: toNullable(roadForm.road_type),
       is_oneway: roadForm.is_oneway,
       coordinates: coordinatePairs,
@@ -1298,8 +1301,8 @@ export default function CollaboratorDashboard() {
 
     setCityForm({
       id: city.id,
-      burmese_name: city.name_mm || "",
-      english_name: city.name_en || "",
+      name_en: city.name_mm || "",
+      name_mm: city.name_en || "",
       address_en: city.address_en || "",
       address_mm: city.address_mm || "",
       description_en: city.description_en || "",
@@ -1393,8 +1396,8 @@ export default function CollaboratorDashboard() {
     setLocationForm({
       id: location.id,
       city_id: location.city_id || "",
-      burmese_name: location.burmese_name || "",
-      english_name: location.english_name || "",
+      name_en: location.name_en || "",
+      name_mm: location.name_mm || "",
       address_en: location.address_en || "",
       address_mm: location.address_mm || "",
       description_en: location.description_en || "",
@@ -1443,8 +1446,8 @@ export default function CollaboratorDashboard() {
       id: road.id,
       city_id: road.city_id || "",
       user_id: road.user_id || "",
-      burmese_name: road.burmese_name || "",
-      english_name: road.english_name || "",
+      name_en: road.name_en || "",
+      name_mm: road.name_mm || "",
       road_type: road.road_type || "",
       is_oneway: road.is_oneway || false,
       intersection_ids: road.intersection_ids || [],
@@ -1805,11 +1808,11 @@ export default function CollaboratorDashboard() {
                           type="text"
                           required
                           placeholder="Enter city name in English"
-                          value={cityForm.english_name}
+                          value={cityForm.name_mm}
                           onChange={(event) =>
                             setCityForm((prev) => ({
                               ...prev,
-                              english_name: event.target.value,
+                              name_mm: event.target.value,
                             }))
                           }
                           className={INPUT_BASE_CLASS}
@@ -1820,11 +1823,11 @@ export default function CollaboratorDashboard() {
                         <input
                           type="text"
                           placeholder="မြို့အမည် (ဗမာ)"
-                          value={cityForm.burmese_name}
+                          value={cityForm.name_en}
                           onChange={(event) =>
                             setCityForm((prev) => ({
                               ...prev,
-                              burmese_name: event.target.value,
+                              name_en: event.target.value,
                             }))
                           }
                           className={INPUT_BASE_CLASS}
@@ -2073,8 +2076,8 @@ export default function CollaboratorDashboard() {
 
                 {/* City Table */}
                 <CityTable
-                  cities={myCitiesForTable as any}
-                  onEdit={handleCityEdit as any}
+                  cities={myCitiesForTable}
+                  onEdit={handleCityEdit}
                   onDelete={handleCityDelete}
                 />
               </section>
@@ -2661,11 +2664,11 @@ export default function CollaboratorDashboard() {
                         <input
                           required
                           type="text"
-                          value={locationForm.english_name}
+                          value={locationForm.name_mm}
                           onChange={(e) =>
                             setLocationForm((prev) => ({
                               ...prev,
-                              english_name: e.target.value,
+                              name_mm: e.target.value,
                             }))
                           }
                           placeholder="e.g., Shwedagon Pagoda"
@@ -2683,11 +2686,11 @@ export default function CollaboratorDashboard() {
                         <input
                           required
                           type="text"
-                          value={locationForm.burmese_name}
+                          value={locationForm.name_en}
                           onChange={(e) =>
                             setLocationForm((prev) => ({
                               ...prev,
-                              burmese_name: e.target.value,
+                              name_en: e.target.value,
                             }))
                           }
                           placeholder="ဥပမာ - ရွှေတိဂုံဘုရား"
@@ -3091,11 +3094,11 @@ export default function CollaboratorDashboard() {
                         <input
                           type="text"
                           placeholder="Enter road name in English"
-                          value={roadForm.english_name}
+                          value={roadForm.name_mm}
                           onChange={(event) =>
                             setRoadForm((prev) => ({
                               ...prev,
-                              english_name: event.target.value,
+                              name_mm: event.target.value,
                             }))
                           }
                           className={INPUT_BASE_CLASS}
@@ -3106,11 +3109,11 @@ export default function CollaboratorDashboard() {
                         <input
                           type="text"
                           placeholder="လမ်းအမည် (ဗမာ)"
-                          value={roadForm.burmese_name}
+                          value={roadForm.name_en}
                           onChange={(event) =>
                             setRoadForm((prev) => ({
                               ...prev,
-                              burmese_name: event.target.value,
+                              name_en: event.target.value,
                             }))
                           }
                           className={INPUT_BASE_CLASS}
@@ -3180,8 +3183,8 @@ export default function CollaboratorDashboard() {
                             return {
                               id: location.id,
                               name:
-                                location.english_name ||
-                                location.burmese_name ||
+                                location.name_en ||
+                                location.name_mm ||
                                 location.id,
                               lon: Number(lon),
                               lat: Number(lat),
@@ -3215,8 +3218,8 @@ export default function CollaboratorDashboard() {
                           >
                             <span className="font-medium">{index + 1}.</span>
                             <span>
-                              {location.english_name ||
-                                location.burmese_name ||
+                              {location.name_en ||
+                                location.name_mm ||
                                 location.id}
                             </span>
                             <button

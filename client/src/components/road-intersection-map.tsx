@@ -160,14 +160,14 @@ function MarkerLayer({
                 ? isEndpoint
                   ? "#2563eb"
                   : "#38bdf8"
-                : "#CBD5F5",
+                : "#00ff73ff",
               weight: isSelected ? 3 : 1,
               fillOpacity: isSelected ? 0.7 : 0.45,
               fillColor: isSelected
                 ? isEndpoint
                   ? "#2563eb"
                   : "#38bdf8"
-                : "#CBD5F5",
+                : "#00ff73ff",
             }}
             eventHandlers={{
               click: () => {
@@ -182,7 +182,7 @@ function MarkerLayer({
               opacity={1}
               permanent={false}
             >
-              <div className="text-xs font-medium text-white">
+              <div className="text-xs font-medium text-slate-700 bg-white">
                 {stepIndex >= 0 ? `${stepIndex + 1}. ` : ""}
                 {intersection.name}
               </div>
@@ -359,14 +359,14 @@ export default function RoadIntersectionMap({
             >
               {(road.name || typeof road.lengthMeters === "number") && (
                 <Tooltip direction="top" offset={[0, -8]} opacity={0.95}>
-                  <div className="space-y-1 text-xs text-slate-100">
+                  <div className="space-y-1 text-xs text-slate-500 bg-green">
                     {road.name ? (
                       <div className="font-semibold tracking-wide">
                         {road.name}
                       </div>
                     ) : null}
                     {typeof road.lengthMeters === "number" ? (
-                      <div className="text-[11px] uppercase tracking-wide text-slate-200/80">
+                      <div className="text-[11px] uppercase tracking-wide text-slate-500">
                         {formatDistanceMeters(road.lengthMeters)}
                       </div>
                     ) : null}

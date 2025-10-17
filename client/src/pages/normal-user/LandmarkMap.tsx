@@ -66,6 +66,7 @@ interface CityLocation {
   address: LocalizedTextPair;
   description: LocalizedTextPair;
   location_type: string | null;
+  is_active: boolean;
   image_urls?: string[] | null;
 }
 
@@ -266,6 +267,7 @@ type LocationApiPayload = Partial<{
   burmese_description: unknown;
   location_type: unknown;
   geometry: unknown;
+  is_active: unknown;
   image_urls: unknown;
 }>;
 
@@ -279,6 +281,25 @@ function pickStringValue(...candidates: unknown[]): string | null {
     }
   }
   return null;
+}
+
+function parseBooleanish(value: unknown, fallback = false): boolean {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "number") {
+    return value !== 0;
+  }
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "true" || normalized === "1" || normalized === "yes") {
+      return true;
+    }
+    if (normalized === "false" || normalized === "0" || normalized === "no") {
+      return false;
+    }
+  }
+  return fallback;
 }
 
 function normalizeCityPayload(city: unknown): City {
@@ -337,6 +358,8 @@ function normalizeLocationPayload(location: unknown): CityLocation {
     json: payload.description_json,
   });
 
+  const isActive = parseBooleanish(payload.is_active, true);
+
   return {
     id: payload.id ? String(payload.id) : "",
     english_name:
@@ -349,6 +372,7 @@ function normalizeLocationPayload(location: unknown): CityLocation {
     description,
     location_type:
       typeof payload.location_type === "string" ? payload.location_type : null,
+    is_active: isActive,
     image_urls: normalizeImageUrls(payload.image_urls ?? null),
   };
 }
@@ -794,6 +818,9 @@ function LandmarkMap() {
   const locationEntries = useMemo<LocationEntry[]>(() => {
     return cityLocations
       .map((location) => {
+        if (!location.is_active) {
+          return null;
+        }
         const normalizedType = location.location_type?.toLowerCase() ?? null;
         if (normalizedType === "intersection") {
           return null;
