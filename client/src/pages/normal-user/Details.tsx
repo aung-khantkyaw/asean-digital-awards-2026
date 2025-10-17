@@ -1217,11 +1217,6 @@ export default function Details() {
                       })
                     : t("profile.profileOf", { cityName: displayCityName })
                 }
-                subtitle={
-                  selectedTitle
-                    ? t("profile.clickCategory")
-                    : t("profile.fromRiverGateway")
-                }
               />
 
               {/* 2:1 Grid Layout - Content (left) and Categories (right) */}
@@ -1680,38 +1675,7 @@ export default function Details() {
             </section>
           ) : null}
 
-          <footer
-            id="contact"
-            className="mt-16 rounded-3xl border border-white/10 bg-slate-950/70 px-6 py-10 text-sm text-slate-300"
-          >
-            <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
-              <div>
-                <p className="text-xs uppercase tracking-[0.3em] text-blue-300/80">
-                  {t("footer.readyToExplore")}
-                </p>
-                <h3 className="mt-2 text-2xl font-semibold text-white">
-                  {t("footer.planYourAdventure", { cityName: displayCityName })}
-                </h3>
-              </div>
-              <div className="flex flex-wrap gap-3 text-xs">
-                <a
-                  href="mailto:hello@routingai.travel"
-                  className="inline-flex items-center gap-2 rounded-full border border-white/20 px-3 py-2 text-slate-200 transition hover:border-blue-400/60 hover:text-white"
-                >
-                  <Navigation className="h-4 w-4" /> hello@routingai.travel
-                </a>
-                <a
-                  href="tel:+959123456789"
-                  className="inline-flex items-center gap-2 rounded-full border border-white/20 px-3 py-2 text-slate-200 transition hover:border-blue-400/60 hover:text-white"
-                >
-                  <Compass className="h-4 w-4" /> +95 9 123 456 789
-                </a>
-              </div>
-            </div>
-            <div className="mt-6 border-t border-white/10 pt-4 text-xs text-slate-500">
-              <p>{t("footer.copyright", { year: new Date().getFullYear() })}</p>
-            </div>
-          </footer>
+
         </div>
       </main>
 

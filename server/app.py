@@ -28,6 +28,16 @@ psycopg2.extras.register_uuid()
 # Load environment variables
 load_dotenv()
 
+
+def env_value(name: str, default: str | None = None) -> str | None:
+    """Fetch environment variables with safe stripping and fallback."""
+    value = os.environ.get(name, None)
+    if isinstance(value, str):
+        value = value.strip()
+        if value == "":
+            value = None
+    return value if value is not None else default
+
 # Initialize Flask app
 app = Flask(__name__)
 app.config["JWT_SECRET_KEY"] = os.environ.get('JWT_SECRET')
@@ -45,13 +55,34 @@ jwt = JWTManager(app)
 
 # Database connection function
 def get_db_connection():
-    return psycopg2.connect(
-        host=os.environ.get('DB_HOST'),
-        database=os.environ.get('DB_NAME'),
-        user=os.environ.get('DB_USER'),
-        password=os.environ.get('DB_PASSWORD'),
-        port=os.environ.get('DB_PORT')
-    )
+    host = env_value('DB_HOST')
+    database = env_value('DB_NAME')
+    user = env_value('DB_USER')
+    password = env_value('DB_PASSWORD')
+    port_value = env_value('DB_PORT', '5432')
+    sslmode = env_value('DB_SSLMODE', 'require')
+
+    try:
+        return psycopg2.connect(
+            host=host,
+            database=database,
+            user=user,
+            password=password,
+            port=int(port_value) if port_value else None,
+            sslmode=sslmode,
+        )
+    except Exception as exc:
+        app.logger.error(
+            "Database connection failed",
+            extra={
+                "host": host,
+                "database": database,
+                "user": user,
+                "sslmode": sslmode,
+                "error": str(exc),
+            },
+        )
+        raise
 
 # File upload configuration
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
