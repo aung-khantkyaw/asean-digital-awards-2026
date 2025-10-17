@@ -63,25 +63,47 @@ def get_db_connection():
     sslmode = env_value('DB_SSLMODE', 'require')
 
     try:
-        return psycopg2.connect(
+        conn = psycopg2.connect(
             host=host,
             database=database,
             user=user,
             password=password,
             port=int(port_value) if port_value else None,
             sslmode=sslmode,
+            connect_timeout=10,
         )
-    except Exception as exc:
+        return conn
+    except psycopg2.OperationalError as exc:
+        error_msg = str(exc)
         app.logger.error(
-            "Database connection failed",
+            f"Database connection failed to {host}:{port_value}",
             extra={
                 "host": host,
+                "port": port_value,
                 "database": database,
                 "user": user,
                 "sslmode": sslmode,
-                "error": str(exc),
+                "error": error_msg,
             },
         )
+        
+        # Provide helpful error messages
+        if "Connection refused" in error_msg:
+            app.logger.error(
+                "Connection refused - Possible causes:\n"
+                "1. Supabase pooler (port 6543) may be disabled or restricted\n"
+                "2. Try direct connection: Update DB_HOST to use .connect.aws.neon.tech and DB_PORT=5432\n"
+                "3. Check Supabase Network Restrictions in Settings → Database\n"
+                "4. Ensure Supabase project is not paused"
+            )
+        elif "timeout" in error_msg.lower():
+            app.logger.error("Connection timeout - Check network connectivity and firewall rules")
+        elif "password authentication failed" in error_msg.lower():
+            app.logger.error("Invalid credentials - Verify DB_USER and DB_PASSWORD")
+        
+        raise
+    except Exception as exc:
+        app.logger.error(f"Unexpected database error: {exc}")
         raise
 
 # File upload configuration
