@@ -37,6 +37,7 @@ type RoadIntersectionMapProps = {
   onChange: (nextIds: string[]) => void;
   disabled?: boolean;
   existingRoads?: RoadPolyline[];
+  cityCenter?: { lon: number; lat: number } | null;
 };
 
 type MapViewControllerProps = {
@@ -199,6 +200,7 @@ export default function RoadIntersectionMap({
   onChange,
   disabled,
   existingRoads,
+  cityCenter,
 }: RoadIntersectionMapProps) {
   const [isClient, setIsClient] = useState(false);
   const [baseLayerKey, setBaseLayerKey] = useState<BaseLayerKey>("imagery");
@@ -265,11 +267,14 @@ export default function RoadIntersectionMap({
     if (selectedPositions.length) {
       return selectedPositions[selectedPositions.length - 1];
     }
+    if (cityCenter) {
+      return [cityCenter.lat, cityCenter.lon];
+    }
     if (mapBounds && mapBounds.length) {
       return mapBounds[0];
     }
     return DEFAULT_CENTER;
-  }, [mapBounds, selectedPositions]);
+  }, [cityCenter, mapBounds, selectedPositions]);
 
   const fallbackZoom = selectedPositions.length
     ? ACTIVE_ZOOM

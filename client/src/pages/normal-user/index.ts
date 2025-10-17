@@ -5,3 +5,4 @@ export { default as Profile } from "./Profile";
 export { default as Details } from "./Details";
 export { default as LandmarkMap } from "./LandmarkMap";
 export { default as NotFoundPage } from "./NotFoundPage";
+export { default as CollaboratorRequest } from "./CollaboratorRequest";

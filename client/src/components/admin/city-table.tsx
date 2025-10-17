@@ -26,12 +26,15 @@ import {
 export type AdminCityRow = {
   id: string;
   user_id: string | null;
-  burmese_name: string | null;
-  english_name: string;
-  address: string | null;
-  description: string | null;
+  name_mm: string | null;
+  name_en: string | null;
+  address_mm: string | null;
+  address_en: string | null;
+  description_mm: string | null;
+  description_en: string | null;
   image_urls: string[] | string | null;
   geometry: string | null;
+  is_active?: boolean;
 };
 
 type CityTableProps = {
@@ -63,7 +66,15 @@ const PAGINATION_BUTTON_CLASS =
   "h-9 rounded-lg border border-white/15 bg-white/10 px-4 text-xs font-medium uppercase tracking-[0.2em] text-emerald-100/80 transition hover:border-emerald-300/60 hover:bg-white/20 hover:text-white disabled:opacity-40";
 
 function resolveCityName(city: AdminCityRow) {
-  return city.english_name || city.burmese_name || city.id;
+  return city.name_en || city.name_mm || city.id;
+}
+
+function resolveCityAddress(city: AdminCityRow) {
+  return city.address_en || city.address_mm || "";
+}
+
+function resolveCityDescription(city: AdminCityRow) {
+  return city.description_en || city.description_mm || "";
 }
 
 function getImageCount(imageValue: AdminCityRow["image_urls"]) {
@@ -139,8 +150,8 @@ export default function CityTable({
     return cities.filter((city) => {
       const haystack = [
         resolveCityName(city),
-        city.address ?? "",
-        city.description ?? "",
+        resolveCityAddress(city),
+        resolveCityDescription(city),
       ]
         .map((value) => value?.toLowerCase?.() ?? "")
         .join(" ");
@@ -166,7 +177,7 @@ export default function CityTable({
       {
         id: "address",
         header: () => "Address",
-        accessorFn: (row) => row.address ?? "",
+        accessorFn: (row) => resolveCityAddress(row),
         cell: ({ getValue }) => {
           const value = getValue<string>();
           if (!value) {

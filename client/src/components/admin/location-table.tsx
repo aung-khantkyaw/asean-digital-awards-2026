@@ -44,10 +44,12 @@ export type AdminLocationRow = {
   id: string;
   city_id: string | null;
   user_id: string | null;
-  burmese_name: string | null;
-  english_name: string | null;
-  address: string | null;
-  description: string | null;
+  name_mm: string | null;
+  name_en: string | null;
+  address_mm: string | null;
+  address_en: string | null;
+  description_mm: string | null;
+  description_en: string | null;
   image_urls: string[] | string | null;
   location_type: string | null;
   geometry: string | null;
@@ -72,8 +74,6 @@ const SELECT_CONTENT_CLASS =
   "border border-white/10 bg-slate-900/90 text-slate-100 backdrop-blur-xl shadow-[0_32px_80px_-48px_rgba(16,185,129,0.5)]";
 const SELECT_ITEM_CLASS =
   "relative cursor-pointer rounded-lg px-3 py-2 text-sm text-slate-200 transition data-[highlighted]:bg-emerald-500/20 data-[highlighted]:text-white data-[disabled]:opacity-50";
-const SELECT_LABEL_ITEM_CLASS =
-  "cursor-default text-[11px] uppercase tracking-[0.3em] text-emerald-100/50";
 const ROWS_PER_PAGE_LABEL_CLASS =
   "text-[11px] uppercase tracking-[0.25em] text-emerald-100/70";
 const TABLE_CONTAINER_CLASS =
@@ -93,11 +93,20 @@ const PAGINATION_BUTTON_CLASS =
 
 function resolveName(location: AdminLocationRow) {
   return (
-    location.english_name ||
-    location.burmese_name ||
-    location.address ||
+    location.name_en ||
+    location.name_mm ||
+    location.address_en ||
+    location.address_mm ||
     location.id
   );
+}
+
+function resolveAddress(location: AdminLocationRow) {
+  return location.address_en || location.address_mm || "";
+}
+
+function resolveDescription(location: AdminLocationRow) {
+  return location.description_en || location.description_mm || "";
 }
 
 function LocationActionsCell({
@@ -185,8 +194,8 @@ export default function LocationTable({
 
       const haystack = [
         resolveName(location),
-        location.description ?? "",
-        location.address ?? "",
+        resolveDescription(location),
+        resolveAddress(location),
         location.location_type ?? "",
       ]
         .map((value) => value?.toLowerCase?.() ?? "")
@@ -202,18 +211,18 @@ export default function LocationTable({
         id: "name",
         header: () => "Name",
         accessorFn: (row) => resolveName(row),
-        cell: ({ row }) => (
-          <div>
-            <p className="text-sm font-semibold text-white">
-              {row.original.english_name ||
-                row.original.burmese_name ||
-                row.original.id}
-            </p>
-            {row.original.address ? (
-              <p className="text-xs text-slate-400">{row.original.address}</p>
-            ) : null}
-          </div>
-        ),
+        cell: ({ row }) => {
+          const name = resolveName(row.original);
+          const address = resolveAddress(row.original);
+          return (
+            <div>
+              <p className="text-sm font-semibold text-white">{name}</p>
+              {address ? (
+                <p className="text-xs text-slate-400">{address}</p>
+              ) : null}
+            </div>
+          );
+        },
       },
       {
         id: "category",
@@ -305,26 +314,21 @@ export default function LocationTable({
                 All categories
               </SelectItem>
               {categoryGroups.map((group) => (
-                <SelectItem
-                  key={group.key}
-                  value={group.options[0]?.value ?? group.key}
-                  disabled
-                  className={SELECT_LABEL_ITEM_CLASS}
-                >
-                  {group.label}
-                </SelectItem>
+                <div key={group.key}>
+                  <div className="px-3 py-2 text-[11px] uppercase tracking-[0.3em] text-emerald-100/50 font-semibold">
+                    {group.label}
+                  </div>
+                  {group.options.map((option) => (
+                    <SelectItem
+                      key={option.value}
+                      value={option.value}
+                      className={SELECT_ITEM_CLASS}
+                    >
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </div>
               ))}
-              {categoryGroups.flatMap((group) =>
-                group.options.map((option) => (
-                  <SelectItem
-                    key={option.value}
-                    value={option.value}
-                    className={SELECT_ITEM_CLASS}
-                  >
-                    {option.label}
-                  </SelectItem>
-                ))
-              )}
             </SelectContent>
           </Select>
           <Select

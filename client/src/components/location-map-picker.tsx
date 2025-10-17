@@ -16,7 +16,7 @@ import markerShadow from "leaflet/dist/images/marker-shadow.png";
 
 const DEFAULT_CENTER: LatLngTuple = [19.747039, 96.0678096];
 const DEFAULT_ZOOM = 6;
-const CITY_ZOOM = 11;
+const CITY_ZOOM = 14;
 const LOCATION_ZOOM = 15;
 
 // Ensure Leaflet icons load correctly with Vite

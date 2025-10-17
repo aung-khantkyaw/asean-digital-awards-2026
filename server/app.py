@@ -19,6 +19,9 @@ import datetime
 from functools import wraps
 import re
 from werkzeug.utils import secure_filename
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 psycopg2.extras.register_uuid()
 
@@ -408,6 +411,38 @@ def compute_segment_lengths(coords):
         lengths.append(calculate_distance(coords[i], coords[i + 1]))
     return lengths
 
+def send_email(to_email, subject, body):
+    """Send email notification to user"""
+    try:
+        smtp_server = os.environ.get('SMTP_SERVER', 'smtp.gmail.com')
+        smtp_port = int(os.environ.get('SMTP_PORT', '587'))
+        smtp_user = os.environ.get('SMTP_USER')
+        smtp_password = os.environ.get('SMTP_PASSWORD')
+        from_email = os.environ.get('FROM_EMAIL', smtp_user)
+        
+        if not smtp_user or not smtp_password:
+            app.logger.warning("SMTP credentials not configured. Email not sent.")
+            return False
+        
+        msg = MIMEMultipart()
+        msg['From'] = from_email
+        msg['To'] = to_email
+        msg['Subject'] = subject
+        
+        msg.attach(MIMEText(body, 'html'))
+        
+        server = smtplib.SMTP(smtp_server, smtp_port)
+        server.starttls()
+        server.login(smtp_user, smtp_password)
+        server.send_message(msg)
+        server.quit()
+        
+        app.logger.info(f"Email sent successfully to {to_email}")
+        return True
+    except Exception as exc:
+        app.logger.error(f"Failed to send email to {to_email}: {str(exc)}")
+        return False
+
 def admin_required(fn):
     """Decorator to require admin privileges"""
     @wraps(fn)
@@ -427,6 +462,31 @@ def admin_required(fn):
 
             if not is_admin:
                 return jsonify({"is_success": False, "msg": "Admin access required"}), 403
+        finally:
+            cur.close()
+            conn.close()
+        return fn(*args, **kwargs)
+    return wrapper
+
+def collaborator_required(fn):
+    """Decorator to require collaborator or admin privileges"""
+    @wraps(fn)
+    @jwt_required()
+    def wrapper(*args, **kwargs):
+        user_id = get_jwt_identity()
+        conn = get_db_connection()
+        cur = conn.cursor()
+        try:
+            cur.execute("SELECT user_type FROM users WHERE id = %s;", (user_id,))
+            user = cur.fetchone()
+            if not user:
+                return jsonify({"is_success": False, "msg": "Collaborator access required"}), 403
+
+            user_type = user[0]
+            is_collaborator_or_admin = isinstance(user_type, str) and user_type.lower() in ["collaborator", "admin"]
+
+            if not is_collaborator_or_admin:
+                return jsonify({"is_success": False, "msg": "Collaborator access required"}), 403
         finally:
             cur.close()
             conn.close()
@@ -497,12 +557,37 @@ def get_city_by_id(city_id):
         cur.close()
         conn.close()
 
+## City Details
+def get_all_city_details():
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    try:
+        cur.execute("""
+            SELECT 
+                id,
+                city_id,
+                user_id,
+                predefined_title,
+                subtitle,
+                body,
+                image_urls,
+                is_active,
+                created_at,
+                updated_at
+            FROM city_details
+            ORDER BY created_at DESC
+        """)
+        return cur.fetchall()
+    finally:
+        cur.close()
+        conn.close()
+
 ## Location
 def get_all_locations():
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
     try:
-        cur.execute("""
+        cur.execute(""" 
             SELECT 
                 id,
                 city_id,
@@ -512,12 +597,11 @@ def get_all_locations():
                 image_urls,
                 description,
                 location_type,
-                ST_AsText(geom) AS geometry
+                ST_AsText(geom) AS geometry,
+                is_active
             FROM locations;
         """)
-        result = cur.fetchall()
-        print(result)
-        return result
+        return cur.fetchall()
     finally:
         cur.close()
         conn.close()
@@ -536,7 +620,8 @@ def get_locations_by_user(user_id):
                 image_urls,
                 description,
                 location_type,
-                ST_AsText(geom) AS geometry
+                ST_AsText(geom) AS geometry,
+                is_active
             FROM locations WHERE user_id = %s;""",
             (str(user_id),)
         )
@@ -559,7 +644,8 @@ def get_locations_by_city(city_id):
                 image_urls,
                 description,
                 location_type,
-                ST_AsText(geom) AS geometry
+                ST_AsText(geom) AS geometry,
+                is_active
             FROM locations WHERE city_id = %s;""",
             (str(city_id),)
         )
@@ -582,7 +668,8 @@ def get_all_roads():
                 road_type,
                 is_oneway,
                 length_m,
-                ST_AsText(geom) AS geometry
+                ST_AsText(geom) AS geometry,
+                is_active
             FROM roads
         """)
         return cur.fetchall()
@@ -603,7 +690,8 @@ def get_roads_by_user(user_id):
                 road_type,
                 is_oneway,
                 length_m,
-                ST_AsText(geom) AS geometry
+                ST_AsText(geom) AS geometry,
+                is_active
             FROM roads WHERE user_id = %s;""",
             (str(user_id),)
         )
@@ -625,7 +713,8 @@ def get_roads_by_city(city_id):
                 road_type,
                 is_oneway,
                 length_m,
-                ST_AsText(geom) AS geometry
+                ST_AsText(geom) AS geometry,
+                is_active
             FROM roads WHERE city_id = %s;""",
             (str(city_id),)
         )
@@ -633,7 +722,6 @@ def get_roads_by_city(city_id):
     finally:
         cur.close()
         conn.close()
-
 
 def get_all_users():
     conn = get_db_connection()
@@ -649,6 +737,55 @@ def get_all_users():
                     created_at,
                     last_login
                 FROM users
+                ORDER BY created_at DESC;
+            """
+        )
+        return cur.fetchall()
+    finally:
+        cur.close()
+        conn.close()
+
+def get_all_collaborators():
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    try:
+        cur.execute(
+            """
+                SELECT
+                    id,
+                    username,
+                    email,
+                    user_type,
+                    created_at,
+                    last_login
+                FROM users
+                WHERE user_type = 'collaborator'
+                ORDER BY created_at DESC;
+            """
+        )
+        return cur.fetchall()
+    finally:
+        cur.close()
+        conn.close()
+
+def get_all_collaborator_requests():
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    try:
+        cur.execute(
+            """
+                SELECT
+                    id,
+                    user_id,
+                    organization,
+                    position,
+                    reason,
+                    status,
+                    admin_notes,
+                    created_at,
+                    updated_at
+                FROM collaborator_requests
+                WHERE status = 'pending'
                 ORDER BY created_at DESC;
             """
         )
@@ -891,6 +1028,41 @@ def get_locations():
     locations_list = [serialize_location_record(loc) for loc in locations]
     return jsonify({"is_success": True, "data": locations_list}), 200
 
+@app.route('/city-details', methods=['GET'])
+def get_city_details():
+    """Public endpoint to fetch city details by city_id and predefined_title"""
+    city_id = request.args.get('city_id')
+    predefined_title = request.args.get('predefined_title')
+    
+    if not city_id:
+        return jsonify({"is_success": False, "msg": "city_id is required"}), 400
+    
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    try:
+        if predefined_title:
+            cur.execute(
+                "SELECT * FROM city_details WHERE city_id = %s AND predefined_title = %s ORDER BY created_at DESC LIMIT 1",
+                (city_id, predefined_title)
+            )
+            detail = cur.fetchone()
+            if not detail:
+                return jsonify({"is_success": False, "msg": "City detail not found"}), 404
+            return jsonify({"is_success": True, "data": serialize_city_detail_record(detail)}), 200
+        else:
+            cur.execute(
+                "SELECT * FROM city_details WHERE city_id = %s ORDER BY created_at DESC",
+                (city_id,)
+            )
+            details = cur.fetchall()
+            return jsonify({"is_success": True, "data": [serialize_city_detail_record(d) for d in details]}), 200
+    except Exception as exc:
+        app.logger.error(f"Error fetching city details: {exc}")
+        return jsonify({"is_success": False, "msg": "Failed to fetch city details", "error": str(exc)}), 500
+    finally:
+        cur.close()
+        conn.close()
+
 @app.route('/roads', methods=['GET'])
 def get_roads():
     user_id = request.args.get('user_id')
@@ -957,7 +1129,8 @@ def serialize_location_record(location):
         "image_urls": location["image_urls"],
         **description_payload,
         "location_type": location["location_type"],
-        "geometry": location["geometry"]
+        "geometry": location["geometry"],
+        "is_active": location.get("is_active")
     }
 
 
@@ -973,7 +1146,8 @@ def serialize_road_record(road):
         "road_type": road["road_type"],
         "is_oneway": road["is_oneway"],
         "length_m": road["length_m"],
-        "geometry": road["geometry"]
+        "geometry": road["geometry"],
+        "is_active": road.get("is_active")
     }
 
 
@@ -993,19 +1167,959 @@ def serialize_user_record(user):
 @admin_required
 def admin_dashboard_summary():
     cities = [serialize_city_record(city) for city in get_all_cities()]
+    city_details = [serialize_city_detail_record(detail) for detail in get_all_city_details()]
     locations = [serialize_location_record(loc) for loc in get_all_locations()]
     roads = [serialize_road_record(road) for road in get_all_roads()]
     users = [serialize_user_record(user) for user in get_all_users()]
+    collaborators = [serialize_user_record(user) for user in get_all_collaborators()]
+    
+    # Get all collaborator requests with user info
+    collaborator_requests = []
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    try:
+        cur.execute(
+            """
+                SELECT
+                    cr.id,
+                    cr.user_id,
+                    u.username,
+                    u.email,
+                    cr.organization,
+                    cr.position,
+                    cr.reason,
+                    cr.status,
+                    cr.admin_notes,
+                    cr.created_at,
+                    cr.updated_at
+                FROM collaborator_requests cr
+                JOIN users u ON cr.user_id = u.id
+                WHERE cr.status = 'pending'
+                ORDER BY cr.created_at DESC;
+            """
+        )
+        requests = cur.fetchall()
+        for req in requests:
+            collaborator_requests.append({
+                "id": str(req["id"]),
+                "user_id": str(req["user_id"]),
+                "username": req["username"],
+                "email": req["email"],
+                "organization": req["organization"],
+                "position": req["position"],
+                "reason": req["reason"],
+                "status": req["status"],
+                "admin_notes": req["admin_notes"],
+                "created_at": req["created_at"].isoformat() if req.get("created_at") else None,
+                "updated_at": req["updated_at"].isoformat() if req.get("updated_at") else None,
+            })
+    finally:
+        cur.close()
+        conn.close()
 
     return jsonify({
         "is_success": True,
         "data": {
             "cities": cities,
+            "city_details": city_details,
             "locations": locations,
             "roads": roads,
             "users": users,
+            "collaborators": collaborators,
+            "collaborator_requests": collaborator_requests,
         },
     }), 200
+
+
+@app.route('/collaborator/dashboard', methods=['GET'])
+@collaborator_required
+def collaborator_dashboard_summary():
+    """Dashboard endpoint for collaborators - returns all content (for reference) and their own network data"""
+    # Return all cities and city details (for reference in dropdowns, etc.)
+    cities = [serialize_city_record(city) for city in get_all_cities()]
+    city_details = [serialize_city_detail_record(detail) for detail in get_all_city_details()]
+    
+    # But only return locations and roads that the collaborator created
+    current_user_id = get_jwt_identity()
+    locations = [serialize_location_record(loc) for loc in get_all_locations()]
+    roads = [serialize_road_record(road) for road in get_all_roads()]
+
+    return jsonify({
+        "is_success": True,
+        "data": {
+            "cities": cities,
+            "city_details": city_details,
+            "locations": locations,
+            "roads": roads,
+        },
+    }), 200
+
+
+# ===== Collaborator CRUD Endpoints =====
+
+@app.route('/collaborator/cities', methods=['GET'])
+@collaborator_required
+def collaborator_list_cities():
+    """Collaborators can only read cities they created"""
+    current_user_id = get_jwt_identity()
+    cities = [serialize_city_record(city) for city in get_all_cities_by_user(current_user_id)]
+    return jsonify({"is_success": True, "data": cities}), 200
+
+
+@app.route('/collaborator/cities', methods=['POST'])
+@collaborator_required
+def collaborator_create_city():
+    """Collaborators can create cities (with their user_id)"""
+    current_user_id = get_jwt_identity()
+    data, is_multipart = extract_normalized_payload()
+    
+    # Force user_id to be the current collaborator
+    data['user_id'] = current_user_id
+    
+    name_payload = coerce_multilingual_payload(data, 'name', legacy_keys=('burmese_name', 'english_name'))
+    if not name_payload:
+        name_payload = normalize_json_field(data.get('name'))
+    if not name_payload:
+        return jsonify({"is_success": False, "msg": "At least one of name_mm or name_en is required"}), 400
+
+    address_payload = coerce_multilingual_payload(data, 'address', legacy_keys=('burmese_address', 'english_address'))
+    if not address_payload and 'address' in data:
+        address_payload = normalize_json_field(data.get('address'))
+
+    description_payload = coerce_multilingual_payload(data, 'description', legacy_keys=('burmese_description', 'english_description'))
+    if not description_payload and 'description' in data:
+        description_payload = normalize_json_field(data.get('description'))
+
+    geometry_wkt = parse_point_geometry(data)
+    if not geometry_wkt:
+        return jsonify({"is_success": False, "msg": "Valid geometry is required"}), 400
+
+    image_urls_value = prepare_image_urls_for_db(data.get('image_urls'))
+
+    if is_multipart:
+        try:
+            uploaded_urls = save_uploaded_images_from_request()
+        except ValueError as exc:
+            return jsonify({"is_success": False, "msg": str(exc)}), 400
+        else:
+            if uploaded_urls:
+                image_urls_value = (image_urls_value or []) + uploaded_urls
+
+    is_active_value = coerce_boolean(data.get('is_active'))
+
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    try:
+        cur.execute(
+            """
+                INSERT INTO cities (user_id, name, address, description, image_urls, geom, is_active)
+                VALUES (%s, %s, %s, %s, %s, ST_GeogFromText(%s), %s)
+                RETURNING id,
+                          user_id,
+                          name,
+                          address,
+                          description,
+                          image_urls,
+                          ST_AsText(geom) AS geometry,
+                          is_active;
+            """,
+            (
+                str(current_user_id),
+                psycopg2.extras.Json(name_payload),
+                psycopg2.extras.Json(address_payload) if address_payload is not None else None,
+                psycopg2.extras.Json(description_payload) if description_payload is not None else None,
+                image_urls_value,
+                geometry_wkt,
+                is_active_value,
+            ),
+        )
+        conn.commit()
+        created = cur.fetchone()
+        return jsonify({"is_success": True, "data": serialize_city_record(created)}), 201
+    except Exception as exc:
+        conn.rollback()
+        app.logger.error(f"Error creating city: {exc}")
+        return jsonify({"is_success": False, "msg": "Failed to create city", "error": str(exc)}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+
+@app.route('/collaborator/cities/<uuid:city_id>', methods=['PUT'])
+@collaborator_required
+def collaborator_update_city(city_id):
+    """Collaborators can only update cities they created"""
+    current_user_id = get_jwt_identity()
+    
+    # First check if the city belongs to this user
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    try:
+        cur.execute("SELECT user_id FROM cities WHERE id = %s;", (str(city_id),))
+        city = cur.fetchone()
+        if not city:
+            return jsonify({"is_success": False, "msg": "City not found"}), 404
+        if str(city['user_id']) != str(current_user_id):
+            return jsonify({"is_success": False, "msg": "You can only edit cities you created"}), 403
+    finally:
+        cur.close()
+        conn.close()
+    
+    # Proceed with update
+    data, is_multipart = extract_normalized_payload()
+    updates = []
+    params = []
+
+    if has_jsonb_payload(data, 'name', legacy_keys=('burmese_name', 'english_name')):
+        if data.get('name') is None and data.get('burmese_name') is None and data.get('english_name') is None and not any(data.get(key) for key in ('name_mm', 'name_en', 'name_my', 'name_mm_MM')):
+            return jsonify({"is_success": False, "msg": "City name cannot be empty"}), 400
+        name_payload = coerce_multilingual_payload(data, 'name', legacy_keys=('burmese_name', 'english_name'))
+        if not name_payload:
+            name_payload = normalize_json_field(data.get('name'))
+        if not name_payload:
+            return jsonify({"is_success": False, "msg": "City name cannot be empty"}), 400
+        updates.append("name = %s")
+        params.append(psycopg2.extras.Json(name_payload))
+
+    if has_jsonb_payload(data, 'address', legacy_keys=('burmese_address', 'english_address')):
+        address_payload = None
+        if data.get('address') is not None or any(data.get(key) for key in ('address_mm', 'address_en', 'address_my', 'address_mm_MM', 'burmese_address', 'english_address')):
+            address_payload = coerce_multilingual_payload(data, 'address', legacy_keys=('burmese_address', 'english_address'))
+            if not address_payload:
+                address_payload = normalize_json_field(data.get('address'))
+        updates.append("address = %s")
+        params.append(psycopg2.extras.Json(address_payload) if address_payload is not None else None)
+
+    if has_jsonb_payload(data, 'description', legacy_keys=('burmese_description', 'english_description')):
+        description_payload = None
+        if data.get('description') is not None or any(data.get(key) for key in ('description_mm', 'description_en', 'description_my', 'description_mm_MM', 'burmese_description', 'english_description')):
+            description_payload = coerce_multilingual_payload(data, 'description', legacy_keys=('burmese_description', 'english_description'))
+            if not description_payload:
+                description_payload = normalize_json_field(data.get('description'))
+        updates.append("description = %s")
+        params.append(psycopg2.extras.Json(description_payload) if description_payload is not None else None)
+
+    image_urls_present = 'image_urls' in data
+    image_urls_value = prepare_image_urls_for_db(data.get('image_urls')) if image_urls_present else None
+
+    uploaded_urls = []
+    if is_multipart:
+        try:
+            uploaded_urls = save_uploaded_images_from_request()
+        except ValueError as exc:
+            return jsonify({"is_success": False, "msg": str(exc)}), 400
+
+    if uploaded_urls:
+        image_urls_value = (image_urls_value or []) + uploaded_urls
+        image_urls_present = True
+
+    if image_urls_present:
+        updates.append("image_urls = %s")
+        params.append(image_urls_value)
+
+    geometry_wkt = parse_point_geometry(data)
+    if geometry_wkt:
+        updates.append("geom = ST_GeogFromText(%s)")
+        params.append(geometry_wkt)
+    elif 'geometry' in data and data.get('geometry') in (None, ""):
+        updates.append("geom = %s")
+        params.append(None)
+
+    if 'is_active' in data:
+        is_active_value = coerce_boolean(data.get('is_active'))
+        updates.append("is_active = %s")
+        params.append(is_active_value)
+
+    if not updates:
+        return jsonify({"is_success": False, "msg": "No valid fields provided"}), 400
+
+    params.append(str(city_id))
+
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    try:
+        update_clause = ", ".join(updates)
+        cur.execute(f"UPDATE cities SET {update_clause} WHERE id = %s RETURNING id, user_id, name, address, description, image_urls, ST_AsText(geom) AS geometry, is_active;", tuple(params))
+        updated = cur.fetchone()
+        if not updated:
+            return jsonify({"is_success": False, "msg": "City not found"}), 404
+        conn.commit()
+        return jsonify({"is_success": True, "data": serialize_city_record(updated)}), 200
+    except Exception as exc:
+        conn.rollback()
+        app.logger.error(f"Error updating city {city_id}: {exc}")
+        return jsonify({"is_success": False, "msg": "Failed to update city", "error": str(exc)}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+
+@app.route('/collaborator/cities/<uuid:city_id>', methods=['DELETE'])
+@collaborator_required
+def collaborator_delete_city(city_id):
+    """Collaborators can only delete cities they created"""
+    current_user_id = get_jwt_identity()
+    
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    try:
+        # Check ownership
+        cur.execute("SELECT user_id FROM cities WHERE id = %s;", (str(city_id),))
+        city = cur.fetchone()
+        if not city:
+            return jsonify({"is_success": False, "msg": "City not found"}), 404
+        if str(city['user_id']) != str(current_user_id):
+            return jsonify({"is_success": False, "msg": "You can only delete cities you created"}), 403
+        
+        # Delete
+        cur.execute("DELETE FROM cities WHERE id = %s RETURNING id;", (str(city_id),))
+        deleted = cur.fetchone()
+        conn.commit()
+        return jsonify({"is_success": True, "msg": "City deleted"}), 200
+    except psycopg2.errors.ForeignKeyViolation:
+        conn.rollback()
+        return jsonify({
+            "is_success": False,
+            "msg": "Cannot delete city referenced by other records",
+            "solution": "Remove dependent records first"
+        }), 400
+    except Exception as exc:
+        conn.rollback()
+        app.logger.error(f"Error deleting city {city_id}: {exc}")
+        return jsonify({"is_success": False, "msg": "Failed to delete city", "error": str(exc)}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+
+# Collaborator City Details CRUD
+@app.route('/collaborator/city-details', methods=['GET'])
+@collaborator_required
+def collaborator_list_city_details():
+    """Collaborators can only read city details they created"""
+    current_user_id = get_jwt_identity()
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    try:
+        cur.execute("""
+            SELECT 
+                id,
+                city_id,
+                user_id,
+                predefined_title,
+                subtitle,
+                body,
+                image_urls,
+                created_at,
+                updated_at
+            FROM city_details
+            WHERE user_id = %s
+            ORDER BY created_at DESC
+        """, (str(current_user_id),))
+        city_details = [serialize_city_detail_record(detail) for detail in cur.fetchall()]
+        return jsonify({"is_success": True, "data": city_details}), 200
+    finally:
+        cur.close()
+        conn.close()
+
+
+@app.route('/collaborator/city-details', methods=['POST'])
+@collaborator_required
+def collaborator_create_city_detail():
+    """Collaborators can create city details (with their user_id)"""
+    current_user_id = get_jwt_identity()
+    data, is_multipart = extract_normalized_payload()
+    
+    # Force user_id to be the current collaborator
+    data['user_id'] = current_user_id
+    
+    city_id = data.get('city_id')
+    if not city_id:
+        return jsonify({"is_success": False, "msg": "city_id is required"}), 400
+    
+    predefined_title = data.get('predefined_title')
+    if not predefined_title:
+        return jsonify({"is_success": False, "msg": "predefined_title is required"}), 400
+    
+    subtitle_payload = coerce_multilingual_payload(data, 'subtitle')
+    body_payload = coerce_multilingual_payload(data, 'body')
+    
+    image_urls_value = prepare_image_urls_for_db(data.get('image_urls'))
+    
+    if is_multipart:
+        try:
+            uploaded_urls = save_uploaded_images_from_request()
+        except ValueError as exc:
+            return jsonify({"is_success": False, "msg": str(exc)}), 400
+        else:
+            if uploaded_urls:
+                image_urls_value = (image_urls_value or []) + uploaded_urls
+    
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    try:
+        cur.execute(
+            """
+                INSERT INTO city_details (city_id, user_id, predefined_title, subtitle, body, image_urls)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                RETURNING id, city_id, user_id, predefined_title, subtitle, body, image_urls, created_at, updated_at;
+            """,
+            (
+                str(city_id),
+                str(current_user_id),
+                predefined_title,
+                psycopg2.extras.Json(subtitle_payload) if subtitle_payload is not None else None,
+                psycopg2.extras.Json(body_payload) if body_payload is not None else None,
+                image_urls_value,
+            ),
+        )
+        conn.commit()
+        created = cur.fetchone()
+        return jsonify({"is_success": True, "data": serialize_city_detail_record(created)}), 201
+    except Exception as exc:
+        conn.rollback()
+        app.logger.error(f"Error creating city detail: {exc}")
+        return jsonify({"is_success": False, "msg": "Failed to create city detail", "error": str(exc)}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+
+@app.route('/collaborator/city-details/<uuid:detail_id>', methods=['PUT'])
+@collaborator_required
+def collaborator_update_city_detail(detail_id):
+    """Collaborators can only update city details they created"""
+    current_user_id = get_jwt_identity()
+    
+    # Check ownership
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    try:
+        cur.execute("SELECT user_id FROM city_details WHERE id = %s;", (str(detail_id),))
+        detail = cur.fetchone()
+        if not detail:
+            return jsonify({"is_success": False, "msg": "City detail not found"}), 404
+        if str(detail['user_id']) != str(current_user_id):
+            return jsonify({"is_success": False, "msg": "You can only edit city details you created"}), 403
+    finally:
+        cur.close()
+        conn.close()
+    
+    data, is_multipart = extract_normalized_payload()
+    updates = []
+    params = []
+    
+    if 'city_id' in data:
+        updates.append("city_id = %s")
+        params.append(data.get('city_id'))
+    
+    if 'predefined_title' in data:
+        updates.append("predefined_title = %s")
+        params.append(data.get('predefined_title'))
+    
+    if has_jsonb_payload(data, 'subtitle'):
+        subtitle_payload = coerce_multilingual_payload(data, 'subtitle')
+        updates.append("subtitle = %s")
+        params.append(psycopg2.extras.Json(subtitle_payload) if subtitle_payload is not None else None)
+    
+    if has_jsonb_payload(data, 'body'):
+        body_payload = coerce_multilingual_payload(data, 'body')
+        updates.append("body = %s")
+        params.append(psycopg2.extras.Json(body_payload) if body_payload is not None else None)
+    
+    image_urls_present = 'image_urls' in data
+    image_urls_value = prepare_image_urls_for_db(data.get('image_urls')) if image_urls_present else None
+    
+    uploaded_urls = []
+    if is_multipart:
+        try:
+            uploaded_urls = save_uploaded_images_from_request()
+        except ValueError as exc:
+            return jsonify({"is_success": False, "msg": str(exc)}), 400
+    
+    if uploaded_urls:
+        image_urls_value = (image_urls_value or []) + uploaded_urls
+        image_urls_present = True
+    
+    if image_urls_present:
+        updates.append("image_urls = %s")
+        params.append(image_urls_value)
+    
+    if not updates:
+        return jsonify({"is_success": False, "msg": "No valid fields provided"}), 400
+    
+    updates.append("updated_at = CURRENT_TIMESTAMP")
+    params.append(str(detail_id))
+    
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    try:
+        update_clause = ", ".join(updates)
+        cur.execute(
+            f"UPDATE city_details SET {update_clause} WHERE id = %s RETURNING id, city_id, user_id, predefined_title, subtitle, body, image_urls, created_at, updated_at;",
+            tuple(params)
+        )
+        updated = cur.fetchone()
+        if not updated:
+            return jsonify({"is_success": False, "msg": "City detail not found"}), 404
+        conn.commit()
+        return jsonify({"is_success": True, "data": serialize_city_detail_record(updated)}), 200
+    except Exception as exc:
+        conn.rollback()
+        app.logger.error(f"Error updating city detail {detail_id}: {exc}")
+        return jsonify({"is_success": False, "msg": "Failed to update city detail", "error": str(exc)}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+
+@app.route('/collaborator/city-details/<uuid:detail_id>', methods=['DELETE'])
+@collaborator_required
+def collaborator_delete_city_detail(detail_id):
+    """Collaborators can only delete city details they created"""
+    current_user_id = get_jwt_identity()
+    
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    try:
+        # Check ownership
+        cur.execute("SELECT user_id FROM city_details WHERE id = %s;", (str(detail_id),))
+        detail = cur.fetchone()
+        if not detail:
+            return jsonify({"is_success": False, "msg": "City detail not found"}), 404
+        if str(detail['user_id']) != str(current_user_id):
+            return jsonify({"is_success": False, "msg": "You can only delete city details you created"}), 403
+        
+        # Delete
+        cur.execute("DELETE FROM city_details WHERE id = %s RETURNING id;", (str(detail_id),))
+        deleted = cur.fetchone()
+        conn.commit()
+        return jsonify({"is_success": True, "msg": "City detail deleted"}), 200
+    except Exception as exc:
+        conn.rollback()
+        app.logger.error(f"Error deleting city detail {detail_id}: {exc}")
+        return jsonify({"is_success": False, "msg": "Failed to delete city detail", "error": str(exc)}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+
+# Collaborator Locations CRUD
+@app.route('/collaborator/locations', methods=['GET'])
+@collaborator_required
+def collaborator_list_locations():
+    """Collaborators can only read locations they created"""
+    current_user_id = get_jwt_identity()
+    locations = [serialize_location_record(loc) for loc in get_locations_by_user(current_user_id)]
+    return jsonify({"is_success": True, "data": locations}), 200
+
+
+@app.route('/collaborator/locations', methods=['POST'])
+@collaborator_required
+def collaborator_create_location():
+    """Collaborators can create locations (with their user_id)"""
+    current_user_id = get_jwt_identity()
+    data, is_multipart = extract_normalized_payload()
+    
+    # Force user_id to be the current collaborator
+    data['user_id'] = current_user_id
+    
+    name_payload = coerce_multilingual_payload(data, 'name', legacy_keys=('burmese_name', 'english_name'))
+    if not name_payload:
+        name_payload = normalize_json_field(data.get('name'))
+    if not name_payload:
+        return jsonify({"is_success": False, "msg": "At least one of name_mm or name_en is required"}), 400
+
+    address_payload = coerce_multilingual_payload(data, 'address', legacy_keys=('burmese_address', 'english_address'))
+    if not address_payload and 'address' in data:
+        address_payload = normalize_json_field(data.get('address'))
+
+    description_payload = coerce_multilingual_payload(data, 'description', legacy_keys=('burmese_description', 'english_description'))
+    if not description_payload and 'description' in data:
+        description_payload = normalize_json_field(data.get('description'))
+
+    geometry_wkt = parse_point_geometry(data)
+    if not geometry_wkt:
+        return jsonify({"is_success": False, "msg": "Valid geometry is required"}), 400
+
+    image_urls_value = prepare_image_urls_for_db(data.get('image_urls'))
+
+    if is_multipart:
+        try:
+            uploaded_urls = save_uploaded_images_from_request()
+        except ValueError as exc:
+            return jsonify({"is_success": False, "msg": str(exc)}), 400
+        else:
+            if uploaded_urls:
+                image_urls_value = (image_urls_value or []) + uploaded_urls
+
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    try:
+        cur.execute(
+            """
+                INSERT INTO locations (city_id, user_id, name, address, description, image_urls, location_type, geom)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, ST_GeogFromText(%s))
+                RETURNING id,
+                          city_id,
+                          user_id,
+                          name,
+                          address,
+                          description,
+                          image_urls,
+                          location_type,
+                          ST_AsText(geom) AS geometry;
+            """,
+            (
+                data.get('city_id'),
+                str(current_user_id),
+                psycopg2.extras.Json(name_payload),
+                psycopg2.extras.Json(address_payload) if address_payload is not None else None,
+                psycopg2.extras.Json(description_payload) if description_payload is not None else None,
+                image_urls_value,
+                data.get('location_type'),
+                geometry_wkt,
+            ),
+        )
+        conn.commit()
+        created = cur.fetchone()
+        return jsonify({"is_success": True, "data": serialize_location_record(created)}), 201
+    except Exception as exc:
+        conn.rollback()
+        app.logger.error(f"Error creating location: {exc}")
+        return jsonify({"is_success": False, "msg": "Failed to create location", "error": str(exc)}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+
+@app.route('/collaborator/locations/<uuid:location_id>', methods=['PUT'])
+@collaborator_required
+def collaborator_update_location(location_id):
+    """Collaborators can only update locations they created"""
+    current_user_id = get_jwt_identity()
+    
+    # Check ownership
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    try:
+        cur.execute("SELECT user_id FROM locations WHERE id = %s;", (str(location_id),))
+        location = cur.fetchone()
+        if not location:
+            return jsonify({"is_success": False, "msg": "Location not found"}), 404
+        if str(location['user_id']) != str(current_user_id):
+            return jsonify({"is_success": False, "msg": "You can only edit locations you created"}), 403
+    finally:
+        cur.close()
+        conn.close()
+    
+    data, is_multipart = extract_normalized_payload()
+    updates = []
+    params = []
+
+    for field in ['city_id', 'location_type']:
+        if field in data:
+            updates.append(f"{field} = %s")
+            params.append(data.get(field))
+
+    if has_jsonb_payload(data, 'name', legacy_keys=('burmese_name', 'english_name')):
+        if data.get('name') is None and data.get('burmese_name') is None and data.get('english_name') is None and not any(data.get(key) for key in ('name_mm', 'name_en', 'name_my', 'name_mm_MM')):
+            return jsonify({"is_success": False, "msg": "Location name cannot be empty"}), 400
+        name_payload = coerce_multilingual_payload(data, 'name', legacy_keys=('burmese_name', 'english_name'))
+        if not name_payload:
+            name_payload = normalize_json_field(data.get('name'))
+        if not name_payload:
+            return jsonify({"is_success": False, "msg": "Location name cannot be empty"}), 400
+        updates.append("name = %s")
+        params.append(psycopg2.extras.Json(name_payload))
+
+    if has_jsonb_payload(data, 'address', legacy_keys=('burmese_address', 'english_address')):
+        address_payload = None
+        if data.get('address') is not None or any(data.get(key) for key in ('address_mm', 'address_en', 'address_my', 'address_mm_MM', 'burmese_address', 'english_address')):
+            address_payload = coerce_multilingual_payload(data, 'address', legacy_keys=('burmese_address', 'english_address'))
+            if not address_payload:
+                address_payload = normalize_json_field(data.get('address'))
+        updates.append("address = %s")
+        params.append(psycopg2.extras.Json(address_payload) if address_payload is not None else None)
+
+    if has_jsonb_payload(data, 'description', legacy_keys=('burmese_description', 'english_description')):
+        description_payload = None
+        if data.get('description') is not None or any(data.get(key) for key in ('description_mm', 'description_en', 'description_my', 'description_mm_MM', 'burmese_description', 'english_description')):
+            description_payload = coerce_multilingual_payload(data, 'description', legacy_keys=('burmese_description', 'english_description'))
+            if not description_payload:
+                description_payload = normalize_json_field(data.get('description'))
+        updates.append("description = %s")
+        params.append(psycopg2.extras.Json(description_payload) if description_payload is not None else None)
+
+    image_urls_present = 'image_urls' in data
+    image_urls_value = prepare_image_urls_for_db(data.get('image_urls')) if image_urls_present else None
+
+    uploaded_urls = []
+    if is_multipart:
+        try:
+            uploaded_urls = save_uploaded_images_from_request()
+        except ValueError as exc:
+            return jsonify({"is_success": False, "msg": str(exc)}), 400
+
+    if uploaded_urls:
+        image_urls_value = (image_urls_value or []) + uploaded_urls
+        image_urls_present = True
+
+    if image_urls_present:
+        updates.append("image_urls = %s")
+        params.append(image_urls_value)
+
+    geometry_wkt = parse_point_geometry(data)
+    if geometry_wkt:
+        updates.append("geom = ST_GeogFromText(%s)")
+        params.append(geometry_wkt)
+    elif 'geometry' in data and data.get('geometry') in (None, ""):
+        updates.append("geom = %s")
+        params.append(None)
+
+    if not updates:
+        return jsonify({"is_success": False, "msg": "No valid fields provided"}), 400
+
+    params.append(str(location_id))
+
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    try:
+        update_clause = ", ".join(updates)
+        cur.execute(
+            f"UPDATE locations SET {update_clause} WHERE id = %s RETURNING id, city_id, user_id, name, address, description, image_urls, location_type, ST_AsText(geom) AS geometry;",
+            tuple(params)
+        )
+        updated = cur.fetchone()
+        if not updated:
+            return jsonify({"is_success": False, "msg": "Location not found"}), 404
+        conn.commit()
+        return jsonify({"is_success": True, "data": serialize_location_record(updated)}), 200
+    except Exception as exc:
+        conn.rollback()
+        app.logger.error(f"Error updating location {location_id}: {exc}")
+        return jsonify({"is_success": False, "msg": "Failed to update location", "error": str(exc)}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+
+@app.route('/collaborator/locations/<uuid:location_id>', methods=['DELETE'])
+@collaborator_required
+def collaborator_delete_location(location_id):
+    """Collaborators can only delete locations they created"""
+    current_user_id = get_jwt_identity()
+    
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    try:
+        # Check ownership
+        cur.execute("SELECT user_id FROM locations WHERE id = %s;", (str(location_id),))
+        location = cur.fetchone()
+        if not location:
+            return jsonify({"is_success": False, "msg": "Location not found"}), 404
+        if str(location['user_id']) != str(current_user_id):
+            return jsonify({"is_success": False, "msg": "You can only delete locations you created"}), 403
+        
+        # Delete
+        cur.execute("DELETE FROM locations WHERE id = %s RETURNING id;", (str(location_id),))
+        deleted = cur.fetchone()
+        conn.commit()
+        return jsonify({"is_success": True, "msg": "Location deleted"}), 200
+    except Exception as exc:
+        conn.rollback()
+        app.logger.error(f"Error deleting location {location_id}: {exc}")
+        return jsonify({"is_success": False, "msg": "Failed to delete location", "error": str(exc)}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+
+# Collaborator Roads CRUD
+@app.route('/collaborator/roads', methods=['GET'])
+@collaborator_required
+def collaborator_list_roads():
+    """Collaborators can only read roads they created"""
+    current_user_id = get_jwt_identity()
+    roads = [serialize_road_record(road) for road in get_roads_by_user(current_user_id)]
+    return jsonify({"is_success": True, "data": roads}), 200
+
+
+@app.route('/collaborator/roads', methods=['POST'])
+@collaborator_required
+def collaborator_create_road():
+    """Collaborators can create roads (with their user_id)"""
+    current_user_id = get_jwt_identity()
+    data, _ = extract_normalized_payload()
+    
+    # Force user_id to be the current collaborator
+    data['user_id'] = current_user_id
+    
+    name_payload = coerce_multilingual_payload(data, 'name', legacy_keys=('burmese_name', 'english_name'))
+    if not name_payload:
+        name_payload = normalize_json_field(data.get('name'))
+    if not name_payload:
+        return jsonify({"is_success": False, "msg": "At least one of name_mm or name_en is required"}), 400
+
+    coordinates = parse_linestring_coordinates(data.get('coordinates'))
+    if len(coordinates) < 2:
+        return jsonify({"is_success": False, "msg": "At least 2 coordinates are required"}), 400
+
+    linestring_wkt = build_linestring_wkt(coordinates)
+    segment_lengths = compute_segment_lengths(coordinates)
+
+    is_oneway = coerce_boolean(data.get('is_oneway', False))
+
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    try:
+        cur.execute(
+            """
+                INSERT INTO roads (city_id, user_id, name, road_type, is_oneway, length_m, geom)
+                VALUES (%s, %s, %s, %s, %s, %s, ST_GeogFromText(%s))
+                RETURNING id,
+                          city_id,
+                          user_id,
+                          name,
+                          road_type,
+                          is_oneway,
+                          length_m,
+                          ST_AsText(geom) AS geometry;
+            """,
+            (
+                data.get('city_id'),
+                str(current_user_id),
+                psycopg2.extras.Json(name_payload),
+                data.get('road_type'),
+                is_oneway,
+                segment_lengths,
+                linestring_wkt,
+            ),
+        )
+        conn.commit()
+        created = cur.fetchone()
+        return jsonify({"is_success": True, "data": serialize_road_record(created)}), 201
+    except Exception as exc:
+        conn.rollback()
+        app.logger.error(f"Error creating road: {exc}")
+        return jsonify({"is_success": False, "msg": "Failed to create road", "error": str(exc)}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+
+@app.route('/collaborator/roads/<uuid:road_id>', methods=['PUT'])
+@collaborator_required
+def collaborator_update_road(road_id):
+    """Collaborators can only update roads they created"""
+    current_user_id = get_jwt_identity()
+    
+    # Check ownership
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    try:
+        cur.execute("SELECT user_id FROM roads WHERE id = %s;", (str(road_id),))
+        road = cur.fetchone()
+        if not road:
+            return jsonify({"is_success": False, "msg": "Road not found"}), 404
+        if str(road['user_id']) != str(current_user_id):
+            return jsonify({"is_success": False, "msg": "You can only edit roads you created"}), 403
+    finally:
+        cur.close()
+        conn.close()
+    
+    data, _ = extract_normalized_payload()
+    updates = []
+    params = []
+
+    for field in ['city_id', 'road_type']:
+        if field in data:
+            updates.append(f"{field} = %s")
+            params.append(data.get(field))
+
+    if has_jsonb_payload(data, 'name', legacy_keys=('burmese_name', 'english_name')):
+        if data.get('name') is None and data.get('burmese_name') is None and data.get('english_name') is None and not any(data.get(key) for key in ('name_mm', 'name_en', 'name_my', 'name_mm_MM')):
+            return jsonify({"is_success": False, "msg": "Road name cannot be empty"}), 400
+        name_payload = coerce_multilingual_payload(data, 'name', legacy_keys=('burmese_name', 'english_name'))
+        if not name_payload:
+            name_payload = normalize_json_field(data.get('name'))
+        if not name_payload:
+            return jsonify({"is_success": False, "msg": "Road name cannot be empty"}), 400
+        updates.append("name = %s")
+        params.append(psycopg2.extras.Json(name_payload))
+
+    if 'is_oneway' in data:
+        is_oneway_value = coerce_boolean(data.get('is_oneway'))
+        updates.append("is_oneway = %s")
+        params.append(is_oneway_value)
+
+    if 'coordinates' in data:
+        coordinates = parse_linestring_coordinates(data.get('coordinates'))
+        if len(coordinates) < 2:
+            return jsonify({"is_success": False, "msg": "At least 2 coordinates are required"}), 400
+        linestring_wkt = build_linestring_wkt(coordinates)
+        segment_lengths = compute_segment_lengths(coordinates)
+        updates.append("geom = ST_GeogFromText(%s)")
+        params.append(linestring_wkt)
+        updates.append("length_m = %s")
+        params.append(segment_lengths)
+
+    if not updates:
+        return jsonify({"is_success": False, "msg": "No valid fields provided"}), 400
+
+    params.append(str(road_id))
+
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    try:
+        update_clause = ", ".join(updates)
+        cur.execute(
+            f"UPDATE roads SET {update_clause} WHERE id = %s RETURNING id, city_id, user_id, name, road_type, is_oneway, length_m, ST_AsText(geom) AS geometry;",
+            tuple(params)
+        )
+        updated = cur.fetchone()
+        if not updated:
+            return jsonify({"is_success": False, "msg": "Road not found"}), 404
+        conn.commit()
+        return jsonify({"is_success": True, "data": serialize_road_record(updated)}), 200
+    except Exception as exc:
+        conn.rollback()
+        app.logger.error(f"Error updating road {road_id}: {exc}")
+        return jsonify({"is_success": False, "msg": "Failed to update road", "error": str(exc)}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+
+@app.route('/collaborator/roads/<uuid:road_id>', methods=['DELETE'])
+@collaborator_required
+def collaborator_delete_road(road_id):
+    """Collaborators can only delete roads they created"""
+    current_user_id = get_jwt_identity()
+    
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        # Check ownership
+        cur.execute("SELECT user_id FROM roads WHERE id = %s;", (str(road_id),))
+        road = cur.fetchone()
+        if not road:
+            return jsonify({"is_success": False, "msg": "Road not found"}), 404
+        if str(road[0]) != str(current_user_id):
+            return jsonify({"is_success": False, "msg": "You can only delete roads you created"}), 403
+        
+        # Delete
+        cur.execute("DELETE FROM roads WHERE id = %s RETURNING id;", (str(road_id),))
+        deleted = cur.fetchone()
+        conn.commit()
+        return jsonify({"is_success": True, "msg": "Road deleted"}), 200
+    except Exception as exc:
+        conn.rollback()
+        app.logger.error(f"Error deleting road {road_id}: {exc}")
+        return jsonify({"is_success": False, "msg": "Failed to delete road", "error": str(exc)}), 500
+    finally:
+        cur.close()
+        conn.close()
 
 
 @app.route('/admin/cities', methods=['GET'])
@@ -1207,6 +2321,262 @@ def admin_delete_city(city_id):
         conn.rollback()
         app.logger.error(f"Error deleting city {city_id}: {exc}")
         return jsonify({"is_success": False, "msg": "Failed to delete city", "error": str(exc)}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+
+# ===== City Details CRUD =====
+def serialize_city_detail_record(detail):
+    """Serialize city_detail record for JSON response."""
+    detail = ensure_mapping(detail)
+    subtitle_obj = detail.get("subtitle")
+    body_obj = detail.get("body")
+    
+    subtitle_payload = {}
+    body_payload = {}
+    
+    if isinstance(subtitle_obj, dict):
+        subtitle_payload = {
+            "subtitle_mm": subtitle_obj.get("mm"),
+            "subtitle_en": subtitle_obj.get("en"),
+        }
+    
+    if isinstance(body_obj, dict):
+        body_payload = {
+            "body_mm": body_obj.get("mm"),
+            "body_en": body_obj.get("en"),
+        }
+    
+    return {
+        "id": str(detail["id"]),
+        "city_id": str(detail["city_id"]) if detail["city_id"] is not None else None,
+        "user_id": str(detail["user_id"]) if detail["user_id"] is not None else None,
+        "predefined_title": detail.get("predefined_title"),
+        **subtitle_payload,
+        **body_payload,
+        "image_urls": detail["image_urls"],
+        "created_at": detail["created_at"].isoformat() if detail.get("created_at") else None,
+        "updated_at": detail["updated_at"].isoformat() if detail.get("updated_at") else None,
+    }
+
+
+@app.route('/admin/city-details', methods=['GET'])
+@admin_required
+def admin_list_city_details():
+    city_id = request.args.get('city_id')
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    try:
+        if city_id:
+            cur.execute("SELECT * FROM city_details WHERE city_id = %s ORDER BY created_at DESC", (city_id,))
+        else:
+            cur.execute("SELECT * FROM city_details ORDER BY created_at DESC")
+        details = cur.fetchall()
+        return jsonify({"is_success": True, "data": [serialize_city_detail_record(d) for d in details]}), 200
+    except Exception as exc:
+        app.logger.error(f"Error listing city details: {exc}")
+        return jsonify({"is_success": False, "msg": "Failed to list city details", "error": str(exc)}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+
+@app.route('/admin/city-details', methods=['POST'])
+@admin_required
+def admin_create_city_detail():
+    data, is_multipart = extract_normalized_payload()
+    
+    city_id = data.get('city_id')
+    if not city_id:
+        return jsonify({"is_success": False, "msg": "city_id is required"}), 400
+    
+    predefined_title = data.get('predefined_title')
+    if not predefined_title:
+        return jsonify({"is_success": False, "msg": "predefined_title is required"}), 400
+    
+    allowed_titles = [
+        'introduction_and_history',
+        'geography',
+        'climate_and_environment',
+        'demographics',
+        'administrative_info',
+        'economic_info',
+        'social_info',
+        'religious_info',
+        'development_info',
+        'general'
+    ]
+    
+    if predefined_title not in allowed_titles:
+        return jsonify({"is_success": False, "msg": f"Invalid predefined_title. Must be one of: {', '.join(allowed_titles)}"}), 400
+    
+    subtitle_payload = coerce_multilingual_payload(data, 'subtitle')
+    if not subtitle_payload:
+        subtitle_payload = normalize_json_field(data.get('subtitle'))
+    
+    body_payload = coerce_multilingual_payload(data, 'body')
+    if not body_payload:
+        body_payload = normalize_json_field(data.get('body'))
+    if not body_payload:
+        return jsonify({"is_success": False, "msg": "At least one of body_mm or body_en is required"}), 400
+    
+    image_urls_value = prepare_image_urls_for_db(data.get('image_urls'))
+    
+    if is_multipart:
+        try:
+            uploaded_urls = save_uploaded_images_from_request()
+        except ValueError as exc:
+            return jsonify({"is_success": False, "msg": str(exc)}), 400
+        else:
+            if uploaded_urls:
+                image_urls_value = (image_urls_value or []) + uploaded_urls
+    
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    try:
+        cur.execute(
+            """
+                INSERT INTO city_details (city_id, user_id, predefined_title, subtitle, body, image_urls)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                RETURNING *;
+            """,
+            (
+                city_id,
+                data.get('user_id'),
+                predefined_title,
+                psycopg2.extras.Json(subtitle_payload) if subtitle_payload else None,
+                psycopg2.extras.Json(body_payload),
+                image_urls_value,
+            ),
+        )
+        conn.commit()
+        created = cur.fetchone()
+        return jsonify({"is_success": True, "data": serialize_city_detail_record(created)}), 201
+    except psycopg2.errors.UniqueViolation:
+        conn.rollback()
+        return jsonify({"is_success": False, "msg": "A detail with this predefined title already exists for this city"}), 409
+    except Exception as exc:
+        conn.rollback()
+        app.logger.error(f"Error creating city detail: {exc}")
+        return jsonify({"is_success": False, "msg": "Failed to create city detail", "error": str(exc)}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+
+@app.route('/admin/city-details/<uuid:detail_id>', methods=['PUT'])
+@admin_required
+def admin_update_city_detail(detail_id):
+    data, is_multipart = extract_normalized_payload()
+    
+    updates = []
+    params = []
+    
+    if 'city_id' in data:
+        updates.append("city_id = %s")
+        params.append(data.get('city_id'))
+    
+    if 'user_id' in data:
+        updates.append("user_id = %s")
+        params.append(data.get('user_id'))
+    
+    if 'predefined_title' in data:
+        predefined_title = data.get('predefined_title')
+        allowed_titles = [
+            'introduction_and_history',
+            'geography',
+            'climate_and_environment',
+            'demographics',
+            'administrative_info',
+            'economic_info',
+            'social_info',
+            'religious_info',
+            'development_info',
+            'general'
+        ]
+        if predefined_title not in allowed_titles:
+            return jsonify({"is_success": False, "msg": f"Invalid predefined_title. Must be one of: {', '.join(allowed_titles)}"}), 400
+        updates.append("predefined_title = %s")
+        params.append(predefined_title)
+    
+    if has_jsonb_payload(data, 'subtitle'):
+        subtitle_payload = coerce_multilingual_payload(data, 'subtitle')
+        if not subtitle_payload:
+            subtitle_payload = normalize_json_field(data.get('subtitle'))
+        updates.append("subtitle = %s")
+        params.append(psycopg2.extras.Json(subtitle_payload) if subtitle_payload else None)
+    
+    if has_jsonb_payload(data, 'body'):
+        body_payload = coerce_multilingual_payload(data, 'body')
+        if not body_payload:
+            body_payload = normalize_json_field(data.get('body'))
+        if not body_payload:
+            return jsonify({"is_success": False, "msg": "Body cannot be empty"}), 400
+        updates.append("body = %s")
+        params.append(psycopg2.extras.Json(body_payload))
+    
+    image_urls_present = 'image_urls' in data
+    image_urls_value = prepare_image_urls_for_db(data.get('image_urls')) if image_urls_present else None
+    
+    uploaded_urls = []
+    if is_multipart:
+        try:
+            uploaded_urls = save_uploaded_images_from_request()
+        except ValueError as exc:
+            return jsonify({"is_success": False, "msg": str(exc)}), 400
+    
+    if uploaded_urls:
+        image_urls_value = (image_urls_value or []) + uploaded_urls
+        image_urls_present = True
+    
+    if image_urls_present:
+        updates.append("image_urls = %s")
+        params.append(image_urls_value)
+    
+    if not updates:
+        return jsonify({"is_success": False, "msg": "No valid fields provided"}), 400
+    
+    params.append(str(detail_id))
+    
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    try:
+        update_clause = ", ".join(updates)
+        cur.execute(f"UPDATE city_details SET {update_clause} WHERE id = %s RETURNING *;", tuple(params))
+        updated = cur.fetchone()
+        if not updated:
+            return jsonify({"is_success": False, "msg": "City detail not found"}), 404
+        conn.commit()
+        return jsonify({"is_success": True, "data": serialize_city_detail_record(updated)}), 200
+    except psycopg2.errors.UniqueViolation:
+        conn.rollback()
+        return jsonify({"is_success": False, "msg": "A detail with this title already exists for this city"}), 409
+    except Exception as exc:
+        conn.rollback()
+        app.logger.error(f"Error updating city detail {detail_id}: {exc}")
+        return jsonify({"is_success": False, "msg": "Failed to update city detail", "error": str(exc)}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+
+@app.route('/admin/city-details/<uuid:detail_id>', methods=['DELETE'])
+@admin_required
+def admin_delete_city_detail(detail_id):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("DELETE FROM city_details WHERE id = %s RETURNING id;", (str(detail_id),))
+        deleted = cur.fetchone()
+        if not deleted:
+            return jsonify({"is_success": False, "msg": "City detail not found"}), 404
+        conn.commit()
+        return jsonify({"is_success": True, "msg": "City detail deleted"}), 200
+    except Exception as exc:
+        conn.rollback()
+        app.logger.error(f"Error deleting city detail {detail_id}: {exc}")
+        return jsonify({"is_success": False, "msg": "Failed to delete city detail", "error": str(exc)}), 500
     finally:
         cur.close()
         conn.close()
@@ -1452,7 +2822,7 @@ def admin_create_road():
                     length_m,
                     geom
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, ST_GeogFromText(%s))
+                VALUES (%s, %s, %s, %s, %s, %s, ST_GeogFromText(%s))
                 RETURNING id,
                           city_id,
                           user_id,
@@ -1976,58 +3346,6 @@ def login():
 def logout():
     return jsonify({"is_success": True, "msg": "Successfully logged out"}), 200
 
-# @app.route('/profile', methods=['GET'])
-# @jwt_required()
-# def get_profile():
-#     user_id = get_jwt_identity()
-    
-#     conn = get_db_connection()
-#     cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
-    
-#     try:
-#         cur.execute("SELECT id, username, email, is_admin, last_login FROM users WHERE id = %s;", (user_id,))
-#         user = cur.fetchone()
-        
-#         if not user:
-#             return jsonify({"is_success": False, "msg": "User not found"}), 404
-
-#         user_dict = dict(user)
-#         user_dict['last_login'] = user_dict['last_login'].isoformat() if user_dict['last_login'] else None
-
-#         return jsonify({"is_success": True, "user": user_dict}), 200
-#     finally:
-#         cur.close()
-#         conn.close()
-
-# @app.route('/profile', methods=['PUT'])
-# @jwt_required()
-# def update_profile():
-#     user_id = get_jwt_identity()
-#     data = request.get_json()
-
-#     username = data.get('username')
-#     email = data.get('email')
-
-#     conn = get_db_connection()
-#     cur = conn.cursor()
-
-#     try:
-#         cur.execute(
-#             "UPDATE users SET username = %s, email = %s WHERE id = %s;",
-#             (username, email, user_id)
-#         )
-#         conn.commit()
-#         return jsonify({"is_success": True, "msg": "Profile updated successfully"}), 200
-#     except Exception as e:
-#         conn.rollback()
-#         app.logger.error(f"Database error: {str(e)}")
-#         return jsonify({"is_success": False, "msg": "Failed to update profile"}), 500
-#     finally:
-#         cur.close()
-#         conn.close()
-
-# === USER ROUTES ===
-
 
 @app.route('/routes/history', methods=['GET'])
 @jwt_required()
@@ -2128,7 +3446,474 @@ def get_route_history():
     finally:
         cur.close()
         conn.close()
+
+
+# ================== Collaborator Request Endpoints ==================
+
+@app.route('/collaborator-requests', methods=['POST'])
+@jwt_required()
+def create_collaborator_request():
+    """Create a new collaborator access request"""
+    user_id = get_jwt_identity()
+    data = request.get_json()
+
+    if not data:
+        return jsonify({"is_success": False, "msg": "Request body required"}), 400
+
+    organization = data.get('organization', '').strip()
+    position = data.get('position', '').strip()
+    reason = data.get('reason', '').strip()
+
+    if not organization or not position or not reason:
+        return jsonify({
+            "is_success": False,
+            "msg": "Organization, position, and reason are required"
+        }), 400
+
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    try:
+        # Check if user already has a pending or approved request
+        cur.execute("""
+            SELECT id, status FROM collaborator_requests
+            WHERE user_id = %s AND status IN ('pending', 'approved')
+            ORDER BY created_at DESC LIMIT 1
+        """, (user_id,))
         
+        existing = cur.fetchone()
+        if existing:
+            status = existing['status']
+            if status == 'approved':
+                return jsonify({
+                    "is_success": False,
+                    "msg": "You already have an approved collaborator request"
+                }), 400
+            elif status == 'pending':
+                return jsonify({
+                    "is_success": False,
+                    "msg": "You already have a pending collaborator request"
+                }), 400
+
+        # Create new request
+        request_id = str(uuid.uuid4())
+        cur.execute("""
+            INSERT INTO collaborator_requests 
+            (id, user_id, organization, position, reason, status, created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, 'pending', NOW(), NOW())
+            RETURNING id, user_id, organization, position, reason, status, 
+                      created_at, updated_at, admin_notes
+        """, (request_id, user_id, organization, position, reason))
+        
+        new_request = cur.fetchone()
+        conn.commit()
+
+        return jsonify({
+            "is_success": True,
+            "data": {
+                "id": str(new_request['id']),
+                "user_id": str(new_request['user_id']),
+                "organization": new_request['organization'],
+                "position": new_request['position'],
+                "reason": new_request['reason'],
+                "status": new_request['status'],
+                "created_at": new_request['created_at'].isoformat(),
+                "updated_at": new_request['updated_at'].isoformat(),
+                "admin_notes": new_request['admin_notes']
+            }
+        }), 201
+
+    except Exception as exc:
+        conn.rollback()
+        app.logger.error(f"Error creating collaborator request: {str(exc)}")
+        return jsonify({"is_success": False, "msg": "Failed to create request"}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+
+@app.route('/collaborator-requests/my-request', methods=['GET'])
+@jwt_required()
+def get_my_collaborator_request():
+    """Get the current user's collaborator request"""
+    user_id = get_jwt_identity()
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    try:
+        cur.execute("""
+            SELECT id, user_id, organization, position, reason, status,
+                   created_at, updated_at, admin_notes
+            FROM collaborator_requests
+            WHERE user_id = %s
+            ORDER BY created_at DESC LIMIT 1
+        """, (user_id,))
+        
+        request_data = cur.fetchone()
+        
+        if not request_data:
+            return jsonify({"is_success": True, "data": None}), 200
+
+        return jsonify({
+            "is_success": True,
+            "data": {
+                "id": str(request_data['id']),
+                "user_id": str(request_data['user_id']),
+                "organization": request_data['organization'],
+                "position": request_data['position'],
+                "reason": request_data['reason'],
+                "status": request_data['status'],
+                "created_at": request_data['created_at'].isoformat(),
+                "updated_at": request_data['updated_at'].isoformat(),
+                "admin_notes": request_data['admin_notes']
+            }
+        }), 200
+
+    except Exception as exc:
+        app.logger.error(f"Error fetching collaborator request: {str(exc)}")
+        return jsonify({"is_success": False, "msg": "Failed to fetch request"}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+
+@app.route('/admin/collaborator-requests', methods=['GET'])
+@admin_required
+def get_all_collaborator_requests():
+    """Get all collaborator requests (admin only)"""
+    status_filter = request.args.get('status')
+    
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    try:
+        query = """
+            SELECT cr.id, cr.user_id, cr.organization, cr.position, cr.reason, 
+                   cr.status, cr.created_at, cr.updated_at, cr.admin_notes,
+                   u.username, u.email
+            FROM collaborator_requests cr
+            LEFT JOIN users u ON cr.user_id = u.id
+        """
+        
+        params = []
+        if status_filter:
+            query += " WHERE cr.status = %s"
+            params.append(status_filter)
+        
+        query += " ORDER BY cr.created_at DESC"
+        
+        cur.execute(query, params if params else None)
+        requests = cur.fetchall()
+
+        results = []
+        for req in requests:
+            results.append({
+                "id": str(req['id']),
+                "user_id": str(req['user_id']),
+                "username": req['username'],
+                "email": req['email'],
+                "organization": req['organization'],
+                "position": req['position'],
+                "reason": req['reason'],
+                "status": req['status'],
+                "created_at": req['created_at'].isoformat(),
+                "updated_at": req['updated_at'].isoformat(),
+                "admin_notes": req['admin_notes']
+            })
+
+        return jsonify({"is_success": True, "data": results}), 200
+
+    except Exception as exc:
+        app.logger.error(f"Error fetching collaborator requests: {str(exc)}")
+        return jsonify({"is_success": False, "msg": "Failed to fetch requests"}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+
+@app.route('/admin/collaborator-requests/<uuid:request_id>', methods=['PUT'])
+@admin_required
+def update_collaborator_request(request_id):
+    """Approve or reject a collaborator request (admin only)"""
+    data = request.get_json()
+    
+    if not data:
+        return jsonify({"is_success": False, "msg": "Request body required"}), 400
+
+    status = data.get('status', '').lower()
+    admin_notes = data.get('admin_notes', '')
+
+    if status not in ['approved', 'rejected']:
+        return jsonify({
+            "is_success": False,
+            "msg": "Status must be 'approved' or 'rejected'"
+        }), 400
+
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    try:
+        # Get the request and user info
+        cur.execute("""
+            SELECT cr.user_id, u.username, u.email 
+            FROM collaborator_requests cr
+            JOIN users u ON cr.user_id = u.id
+            WHERE cr.id = %s
+        """, (str(request_id),))
+        
+        request_data = cur.fetchone()
+        if not request_data:
+            return jsonify({"is_success": False, "msg": "Request not found"}), 404
+
+        user_id = request_data['user_id']
+        username = request_data['username']
+        user_email = request_data['email']
+
+        # Update the request status
+        cur.execute("""
+            UPDATE collaborator_requests
+            SET status = %s, admin_notes = %s, updated_at = NOW()
+            WHERE id = %s
+            RETURNING id, user_id, organization, position, reason, status,
+                      created_at, updated_at, admin_notes
+        """, (status, admin_notes, str(request_id)))
+        
+        updated_request = cur.fetchone()
+
+        # If approved, update user's role to collaborator
+        if status == 'approved':
+            cur.execute("""
+                UPDATE users SET user_type = 'collaborator' WHERE id = %s
+            """, (str(user_id),))
+            
+            # Send approval email
+            subject = "Collaborator Request Approved"
+            body = f"""
+            <html>
+                <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+                    <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+                        <h2 style="color: #10b981;">Congratulations, {username}!</h2>
+                        <p>Your collaborator request has been <strong>approved</strong>.</p>
+                        <p>You now have collaborator access to the Myanmar Explorer platform.</p>
+                        <p>You can now contribute to the platform by adding and managing content.</p>
+                        {f'<div style="background-color: #f0f9ff; border-left: 4px solid #10b981; padding: 15px; margin: 20px 0;"><strong>Admin Note:</strong><br>{admin_notes}</div>' if admin_notes else ''}
+                        <p style="margin-top: 30px;">Best regards,<br>Myanmar Explorer Team</p>
+                    </div>
+                </body>
+            </html>
+            """
+            send_email(user_email, subject, body)
+
+        conn.commit()
+
+        return jsonify({
+            "is_success": True,
+            "data": {
+                "id": str(updated_request['id']),
+                "user_id": str(updated_request['user_id']),
+                "organization": updated_request['organization'],
+                "position": updated_request['position'],
+                "reason": updated_request['reason'],
+                "status": updated_request['status'],
+                "created_at": updated_request['created_at'].isoformat(),
+                "updated_at": updated_request['updated_at'].isoformat(),
+                "admin_notes": updated_request['admin_notes']
+            }
+        }), 200
+
+    except Exception as exc:
+        conn.rollback()
+        app.logger.error(f"Error updating collaborator request: {str(exc)}")
+        return jsonify({"is_success": False, "msg": "Failed to update request"}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+
+# ================== Collaborator Management Endpoints ==================
+
+@app.route('/admin/collaborators', methods=['GET'])
+@admin_required
+def get_collaborators_list():
+    """Get all collaborators (admin only)"""
+    collaborators = [serialize_user_record(user) for user in get_all_collaborators()]
+    return jsonify({"is_success": True, "data": collaborators}), 200
+
+
+@app.route('/admin/collaborators/<uuid:user_id>', methods=['GET'])
+@admin_required
+def get_collaborator_details(user_id):
+    """Get details of a specific collaborator (admin only)"""
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    
+    try:
+        cur.execute("""
+            SELECT
+                id,
+                username,
+                email,
+                user_type,
+                is_admin,
+                created_at,
+                last_login
+            FROM users
+            WHERE id = %s AND user_type = 'collaborator'
+        """, (str(user_id),))
+        
+        user = cur.fetchone()
+        if not user:
+            return jsonify({"is_success": False, "msg": "Collaborator not found"}), 404
+        
+        return jsonify({"is_success": True, "data": serialize_user_record(user)}), 200
+    finally:
+        cur.close()
+        conn.close()
+
+
+@app.route('/admin/collaborators/<uuid:user_id>', methods=['PUT'])
+@admin_required
+def update_collaborator(user_id):
+    """Update collaborator details (admin only)"""
+    data = request.get_json()
+    
+    if not data:
+        return jsonify({"is_success": False, "msg": "Request body required"}), 400
+    
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    
+    try:
+        # Verify the user is a collaborator
+        cur.execute("""
+            SELECT id FROM users WHERE id = %s AND user_type = 'collaborator'
+        """, (str(user_id),))
+        
+        if not cur.fetchone():
+            return jsonify({"is_success": False, "msg": "Collaborator not found"}), 404
+        
+        # Build update query dynamically based on provided fields
+        update_fields = []
+        params = []
+        
+        if 'username' in data:
+            update_fields.append("username = %s")
+            params.append(data['username'])
+        
+        if 'email' in data:
+            update_fields.append("email = %s")
+            params.append(data['email'])
+        
+        if 'password' in data and data['password']:
+            from werkzeug.security import generate_password_hash
+            update_fields.append("password_hash = %s")
+            params.append(generate_password_hash(data['password']))
+        
+        if not update_fields:
+            return jsonify({"is_success": False, "msg": "No fields to update"}), 400
+        
+        params.append(str(user_id))
+        
+        query = f"""
+            UPDATE users
+            SET {', '.join(update_fields)}
+            WHERE id = %s
+            RETURNING id, username, email, user_type, is_admin, created_at, last_login
+        """
+        
+        cur.execute(query, params)
+        updated_user = cur.fetchone()
+        conn.commit()
+        
+        return jsonify({
+            "is_success": True,
+            "data": serialize_user_record(updated_user)
+        }), 200
+        
+    except Exception as exc:
+        conn.rollback()
+        app.logger.error(f"Error updating collaborator: {str(exc)}")
+        return jsonify({"is_success": False, "msg": "Failed to update collaborator"}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+
+@app.route('/admin/collaborators/<uuid:user_id>', methods=['DELETE'])
+@admin_required
+def delete_collaborator(user_id):
+    """Revoke collaborator status or delete collaborator (admin only)"""
+    data = request.get_json() or {}
+    admin_notes = data.get('admin_notes', '')
+    
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    
+    try:
+        # Verify the user is a collaborator and get user info
+        cur.execute("""
+            SELECT id, username, email FROM users WHERE id = %s AND user_type = 'collaborator'
+        """, (str(user_id),))
+        
+        user = cur.fetchone()
+        if not user:
+            return jsonify({"is_success": False, "msg": "Collaborator not found"}), 404
+        
+        username = user['username']
+        user_email = user['email']
+        
+        # Option 1: Revoke collaborator status (change back to normal_user)
+        # Option 2: Delete the user entirely
+        # Let's use Option 1 by default - revoke collaborator status
+        
+        cur.execute("""
+            UPDATE users
+            SET user_type = 'normal_user'
+            WHERE id = %s
+        """, (str(user_id),))
+        
+        # Soft delete from collaborator_requests table by setting status to 'revoked'
+        cur.execute("""
+            UPDATE collaborator_requests
+            SET status = 'revoked', admin_notes = %s, updated_at = NOW()
+            WHERE user_id = %s AND status = 'approved'
+        """, (admin_notes, str(user_id),))
+        
+        conn.commit()
+        
+        # Send revocation email
+        subject = "Collaborator Access Revoked"
+        body = f"""
+        <html>
+            <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+                <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+                    <h2 style="color: #ef4444;">Collaborator Access Revoked</h2>
+                    <p>Dear {username},</p>
+                    <p>Your collaborator access to the Myanmar Explorer platform has been <strong>revoked</strong>.</p>
+                    <p>Your account will be reverted to regular user status.</p>
+                    {f'<div style="background-color: #fef2f2; border-left: 4px solid #ef4444; padding: 15px; margin: 20px 0;"><strong>Reason:</strong><br>{admin_notes}</div>' if admin_notes else ''}
+                    <p>If you believe this is a mistake or have any questions, please contact the administrator.</p>
+                    <p style="margin-top: 30px;">Best regards,<br>Myanmar Explorer Team</p>
+                </div>
+            </body>
+        </html>
+        """
+        send_email(user_email, subject, body)
+        
+        return jsonify({
+            "is_success": True,
+            "msg": "Collaborator status revoked successfully"
+        }), 200
+        
+    except Exception as exc:
+        conn.rollback()
+        app.logger.error(f"Error revoking collaborator status: {str(exc)}")
+        return jsonify({"is_success": False, "msg": "Failed to revoke collaborator status"}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+
 # Health check
 @app.route('/health', methods=['GET'])
 def health_check():

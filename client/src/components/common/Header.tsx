@@ -176,7 +176,7 @@ export const Header = () => {
     roleTheme.headerClass
   );
   const brandClasses = cn(
-    "text-sm sm:text-base font-semibold tracking-tight truncate",
+    "text-sm sm:text-base font-semibold tracking-tight truncate hidden md:block",
     roleTheme.brandColorClass
   );
   const languageButtonClasses = cn(

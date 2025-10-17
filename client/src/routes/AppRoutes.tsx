@@ -2,13 +2,12 @@ import { Navigate, useRoutes } from "react-router-dom";
 
 import AdminLayout from "@/components/admin/AdminLayout";
 import CollaboratorLayout from "@/components/collaborator/CollaboratorLayout";
-import { Dashboard, Collaborators, Settings } from "@/pages/admin";
+import { Dashboard } from "@/pages/admin";
 import {
-  Overview as CollaboratorOverview,
-  Profile as CollaboratorProfile,
-  Submissions,
+  Dashboard as CollaboratorDashboard,
 } from "@/pages/collaborator";
 import {
+  CollaboratorRequest,
   Details,
   Home,
   LandmarkMap,
@@ -16,7 +15,7 @@ import {
   Profile,
   SignIn,
   SignUp,
-} from "@/pages/customer";
+} from "@/pages/normal-user";
 
 const AppRoutes = () => {
   return useRoutes([
@@ -26,8 +25,6 @@ const AppRoutes = () => {
       children: [
         { index: true, element: <Navigate to="dashboard" replace /> },
         { path: "dashboard", element: <Dashboard /> },
-        { path: "collaborators", element: <Collaborators /> },
-        { path: "settings", element: <Settings /> },
         { path: "*", element: <NotFoundPage /> },
       ],
     },
@@ -35,10 +32,8 @@ const AppRoutes = () => {
       path: "/collaborator",
       element: <CollaboratorLayout />,
       children: [
-        { index: true, element: <Navigate to="overview" replace /> },
-        { path: "overview", element: <CollaboratorOverview /> },
-        { path: "submissions", element: <Submissions /> },
-        { path: "profile", element: <CollaboratorProfile /> },
+        { index: true, element: <Navigate to="dashboard" replace /> },
+        { path: "dashboard", element: <CollaboratorDashboard /> },
         { path: "*", element: <NotFoundPage /> },
       ],
     },
@@ -46,6 +41,7 @@ const AppRoutes = () => {
     { path: "/sign-in", element: <SignIn /> },
     { path: "/sign-up", element: <SignUp /> },
     { path: "/profile", element: <Profile /> },
+    { path: "/collaborator-request", element: <CollaboratorRequest /> },
     { path: "/landmark-map", element: <LandmarkMap /> },
     { path: "/landmark-map/:cityId", element: <LandmarkMap /> },
     { path: "/:cityId/details", element: <Details /> },

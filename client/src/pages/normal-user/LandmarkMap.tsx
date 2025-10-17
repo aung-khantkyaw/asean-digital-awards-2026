@@ -304,11 +304,8 @@ function normalizeCityPayload(city: unknown): City {
   return {
     id: payload.id ? String(payload.id) : "",
     english_name:
-      pickStringValue(
-        payload.english_name,
-        payload.name_en,
-        payload.name
-      ) ?? "",
+      pickStringValue(payload.english_name, payload.name_en, payload.name) ??
+      "",
     burmese_name:
       pickStringValue(payload.burmese_name, payload.name_mm) ?? null,
     geometry: typeof payload.geometry === "string" ? payload.geometry : null,
@@ -343,11 +340,8 @@ function normalizeLocationPayload(location: unknown): CityLocation {
   return {
     id: payload.id ? String(payload.id) : "",
     english_name:
-      pickStringValue(
-        payload.english_name,
-        payload.name_en,
-        payload.name
-      ) ?? "",
+      pickStringValue(payload.english_name, payload.name_en, payload.name) ??
+      "",
     burmese_name:
       pickStringValue(payload.burmese_name, payload.name_mm) ?? null,
     geometry: typeof payload.geometry === "string" ? payload.geometry : null,

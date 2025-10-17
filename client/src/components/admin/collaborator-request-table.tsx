@@ -1,8 +1,8 @@
 import { useMemo, useState } from "react";
 import type {
-  ColumnDef,
-  PaginationState,
   SortingState,
+  PaginationState,
+  ColumnDef,
 } from "@tanstack/react-table";
 import {
   flexRender,
@@ -31,24 +31,25 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 
-export type AdminRoadRow = {
+export type AdminCollaboratorRequestRow = {
   id: string;
-  city_id: string | null;
-  user_id: string | null;
-  name_mm: string | null;
-  name_en: string | null;
-  road_type: string | null;
-  is_oneway: boolean | null;
-  length_m: number[] | null;
-  geometry: string | null;
+  user_id: string;
+  username: string;
+  email: string;
+  organization: string;
+  position: string;
+  reason: string;
+  status: "pending" | "approved" | "rejected";
+  created_at: string;
+  updated_at: string;
+  admin_notes?: string;
 };
 
-type RoadTableProps = {
-  roads: AdminRoadRow[];
-  cityLookup: Record<string, string>;
-  roadTypeOptions: string[];
-  onEdit: (road: AdminRoadRow) => void;
-  onDelete: (roadId: string) => void;
+type CollaboratorRequestTableProps = {
+  requests: AdminCollaboratorRequestRow[];
+  onApprove: (request: AdminCollaboratorRequestRow) => void;
+  onReject: (request: AdminCollaboratorRequestRow) => void;
+  onViewDetails: (request: AdminCollaboratorRequestRow) => void;
   pageSizeOptions?: number[];
 };
 
@@ -57,7 +58,7 @@ const DEFAULT_PAGE_SIZE = 10;
 const FILTER_INPUT_CLASS =
   "h-11 rounded-xl border border-white/10 bg-slate-950/40 px-4 text-sm text-white placeholder:text-slate-500 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] transition focus:border-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-300/25";
 const SELECT_TRIGGER_CLASS =
-  "h-11 w-full rounded-xl border border-white/10 bg-slate-950/40 px-4 text-sm text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] transition focus:border-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-300/25 sm:w-48";
+  "h-11 w-full rounded-xl border border-white/10 bg-slate-950/40 px-4 text-sm text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] transition focus:border-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-300/25 sm:w-56";
 const SELECT_CONTENT_CLASS =
   "border border-white/10 bg-slate-900/90 text-slate-100 backdrop-blur-xl shadow-[0_32px_80px_-48px_rgba(16,185,129,0.5)]";
 const SELECT_ITEM_CLASS =
@@ -70,34 +71,59 @@ const TABLE_HEADER_CLASS =
   "bg-white/[0.02] text-[11px] font-semibold uppercase tracking-[0.25em] text-emerald-100/70";
 const TABLE_CELL_TEXT_CLASS = "text-sm text-slate-200";
 const TABLE_MUTED_TEXT_CLASS = "text-sm text-slate-400";
-const BADGE_CLASS =
-  "border-emerald-400/30 bg-emerald-400/10 text-emerald-100 shadow-[0_10px_25px_-18px_rgba(16,185,129,0.7)]";
 const ACTION_BUTTON_CLASS =
   "h-9 rounded-lg border border-white/20 bg-white/10 px-4 text-sm font-medium text-emerald-100/90 shadow-[0_12px_30px_-20px_rgba(16,185,129,0.8)] transition hover:border-emerald-300/70 hover:bg-white/20 hover:text-white";
+const SUCCESS_BUTTON_CLASS =
+  "h-9 rounded-lg border border-emerald-500/30 bg-emerald-500/15 px-4 text-sm font-medium text-emerald-100 shadow-[0_12px_30px_-20px_rgba(16,185,129,0.8)] transition hover:border-emerald-400/60 hover:bg-emerald-500/20 hover:text-white";
 const DANGER_BUTTON_CLASS =
   "h-9 rounded-lg border border-rose-500/30 bg-rose-500/15 px-4 text-sm font-medium text-rose-100 shadow-[0_12px_30px_-20px_rgba(244,63,94,0.8)] transition hover:border-rose-400/60 hover:bg-rose-500/20 hover:text-white";
 const PAGINATION_BUTTON_CLASS =
   "h-9 rounded-lg border border-white/15 bg-white/10 px-4 text-xs font-medium uppercase tracking-[0.2em] text-emerald-100/80 transition hover:border-emerald-300/60 hover:bg-white/20 hover:text-white disabled:opacity-40";
 
-function resolveRoadName(road: AdminRoadRow) {
-  return road.name_en || road.name_mm || road.id;
-}
-
-function formatRoadType(value: string | null | undefined) {
-  if (!value) {
-    return null;
+function getStatusBadge(status: string) {
+  switch (status) {
+    case "pending":
+      return (
+        <Badge
+          variant="outline"
+          className="border-yellow-400/30 bg-yellow-400/10 text-yellow-100"
+        >
+          Pending
+        </Badge>
+      );
+    case "approved":
+      return (
+        <Badge
+          variant="outline"
+          className="border-emerald-400/30 bg-emerald-400/10 text-emerald-100"
+        >
+          Approved
+        </Badge>
+      );
+    case "rejected":
+      return (
+        <Badge
+          variant="outline"
+          className="border-rose-400/30 bg-rose-400/10 text-rose-100"
+        >
+          Rejected
+        </Badge>
+      );
+    default:
+      return <span className={TABLE_MUTED_TEXT_CLASS}>—</span>;
   }
-  return value.replace(/[_-]+/g, " ");
 }
 
-function RoadActionsCell({
-  road,
-  onEdit,
-  onDelete,
+function CollaboratorRequestActionsCell({
+  request,
+  onApprove,
+  onReject,
+  onViewDetails,
 }: {
-  road: AdminRoadRow;
-  onEdit: RoadTableProps["onEdit"];
-  onDelete: RoadTableProps["onDelete"];
+  request: AdminCollaboratorRequestRow;
+  onApprove: CollaboratorRequestTableProps["onApprove"];
+  onReject: CollaboratorRequestTableProps["onReject"];
+  onViewDetails: CollaboratorRequestTableProps["onViewDetails"];
 }) {
   return (
     <div className="flex justify-end gap-2">
@@ -105,188 +131,143 @@ function RoadActionsCell({
         variant="outline"
         size="sm"
         className={ACTION_BUTTON_CLASS}
-        onClick={() => onEdit(road)}
+        onClick={() => onViewDetails(request)}
       >
-        Edit
+        View
       </Button>
-      <Button
-        variant="destructive"
-        size="sm"
-        className={DANGER_BUTTON_CLASS}
-        onClick={() => onDelete(road.id)}
-      >
-        Delete
-      </Button>
+      {request.status === "pending" && (
+        <>
+          <Button
+            variant="outline"
+            size="sm"
+            className={SUCCESS_BUTTON_CLASS}
+            onClick={() => onApprove(request)}
+          >
+            Approve
+          </Button>
+          <Button
+            variant="destructive"
+            size="sm"
+            className={DANGER_BUTTON_CLASS}
+            onClick={() => onReject(request)}
+          >
+            Reject
+          </Button>
+        </>
+      )}
     </div>
   );
 }
 
-export default function RoadTable({
-  roads,
-  cityLookup,
-  roadTypeOptions,
-  onEdit,
-  onDelete,
+export default function CollaboratorRequestTable({
+  requests,
+  onApprove,
+  onReject,
+  onViewDetails,
   pageSizeOptions = [5, 10, 20, 50],
-}: RoadTableProps) {
+}: CollaboratorRequestTableProps) {
   const [searchTerm, setSearchTerm] = useState("");
-  const [cityFilter, setCityFilter] = useState("all");
-  const [roadTypeFilter, setRoadTypeFilter] = useState("all");
-  const [oneWayFilter, setOneWayFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [sorting, setSorting] = useState<SortingState>([
-    { id: "name", desc: false },
+    { id: "created_at", desc: true },
   ]);
   const [pagination, setPagination] = useState<PaginationState>({
     pageIndex: 0,
     pageSize: DEFAULT_PAGE_SIZE,
   });
 
-  const uniqueCities = useMemo(() => {
-    const cityIds = new Set<string>();
-    roads.forEach((road) => {
-      if (road.city_id) {
-        cityIds.add(road.city_id);
-      }
-    });
-    return Array.from(cityIds)
-      .sort((a, b) => cityLookup[a]?.localeCompare(cityLookup[b] ?? "") ?? 0)
-      .map((cityId) => ({ id: cityId, label: cityLookup[cityId] ?? cityId }));
-  }, [cityLookup, roads]);
-
-  const availableRoadTypes = useMemo(() => {
-    const values = new Set<string>();
-    roadTypeOptions.forEach((type) => values.add(type));
-    roads.forEach((road) => {
-      if (road.road_type) {
-        values.add(road.road_type);
-      }
-    });
-    return Array.from(values).sort((a, b) => a.localeCompare(b));
-  }, [roadTypeOptions, roads]);
-
-  const filteredRoads = useMemo(() => {
+  const filteredRequests = useMemo(() => {
     const normalizedSearch = searchTerm.trim().toLowerCase();
 
-    return roads.filter((road) => {
-      if (cityFilter !== "all" && (road.city_id ?? "") !== cityFilter) {
+    return requests.filter((request) => {
+      if (statusFilter !== "all" && request.status !== statusFilter) {
         return false;
-      }
-
-      if (roadTypeFilter !== "all") {
-        if ((road.road_type ?? "").toLowerCase() !== roadTypeFilter) {
-          return false;
-        }
-      }
-
-      if (oneWayFilter !== "all") {
-        const isOneWay = Boolean(road.is_oneway);
-        if (oneWayFilter === "yes" && !isOneWay) {
-          return false;
-        }
-        if (oneWayFilter === "no" && isOneWay) {
-          return false;
-        }
       }
 
       if (!normalizedSearch) {
         return true;
       }
 
-      const haystack = [resolveRoadName(road), road.road_type ?? ""]
+      const haystack = [
+        request.username,
+        request.email,
+        request.organization,
+        request.position,
+        request.reason,
+      ]
         .map((value) => value?.toLowerCase?.() ?? "")
         .join(" ");
 
       return haystack.includes(normalizedSearch);
     });
-  }, [cityFilter, oneWayFilter, roadTypeFilter, roads, searchTerm]);
+  }, [requests, searchTerm, statusFilter]);
 
-  const columns = useMemo<ColumnDef<AdminRoadRow>[]>(
+  const columns = useMemo<ColumnDef<AdminCollaboratorRequestRow>[]>(
     () => [
       {
-        id: "name",
-        header: () => "Road",
-        accessorFn: (row) => resolveRoadName(row),
+        id: "user",
+        header: () => "User",
+        accessorFn: (row) => row.username,
         cell: ({ row }) => (
           <div>
             <p className="text-sm font-semibold text-white">
-              {resolveRoadName(row.original)}
+              {row.original.username}
             </p>
-            {row.original.road_type ? (
-              <p className="text-xs text-slate-400">
-                {formatRoadType(row.original.road_type)}
-              </p>
-            ) : null}
+            <p className="text-xs text-slate-400">{row.original.email}</p>
           </div>
         ),
       },
       {
-        id: "city",
-        header: () => "City",
-        accessorFn: (row) => row.city_id ?? "",
-        cell: ({ row }) => {
-          const cityId = row.original.city_id;
-          if (!cityId) {
-            return <span className={TABLE_MUTED_TEXT_CLASS}>—</span>;
-          }
-          return cityLookup[cityId] ?? cityId;
-        },
-      },
-      {
-        id: "type",
-        header: () => "Type",
-        accessorFn: (row) => row.road_type ?? "",
-        cell: ({ getValue }) => {
-          const value = getValue<string>();
-          if (!value) {
-            return <span className={TABLE_MUTED_TEXT_CLASS}>—</span>;
-          }
-          return (
-            <Badge variant="outline" className={BADGE_CLASS}>
-              {formatRoadType(value)}
-            </Badge>
-          );
-        },
-      },
-      {
-        id: "oneway",
-        header: () => "One way",
-        accessorFn: (row) => Boolean(row.is_oneway),
-        cell: ({ getValue }) => (
-          <span
-            className={
-              getValue<boolean>()
-                ? "text-sm font-medium text-emerald-200"
-                : TABLE_MUTED_TEXT_CLASS
-            }
-          >
-            {getValue<boolean>() ? "Yes" : "No"}
-          </span>
+        id: "organization",
+        header: () => "Organization",
+        accessorFn: (row) => row.organization,
+        cell: ({ row }) => (
+          <div>
+            <p className="text-sm font-semibold text-white">
+              {row.original.organization}
+            </p>
+            <p className="text-xs text-slate-400">{row.original.position}</p>
+          </div>
         ),
       },
       {
-        id: "segments",
-        header: () => "Segments",
-        accessorFn: (row) => row.length_m?.length ?? 0,
-        cell: ({ getValue }) => getValue<number>() ?? 0,
+        id: "status",
+        header: () => "Status",
+        accessorFn: (row) => row.status,
+        cell: ({ getValue }) => getStatusBadge(getValue<string>()),
+      },
+      {
+        id: "created_at",
+        header: () => "Submitted",
+        accessorFn: (row) => row.created_at,
+        cell: ({ getValue }) => {
+          const date = new Date(getValue<string>());
+          return (
+            <span className={TABLE_CELL_TEXT_CLASS}>
+              {date.toLocaleDateString()}
+            </span>
+          );
+        },
       },
       {
         id: "actions",
         header: () => null,
         cell: ({ row }) => (
-          <RoadActionsCell
-            road={row.original}
-            onEdit={onEdit}
-            onDelete={onDelete}
+          <CollaboratorRequestActionsCell
+            request={row.original}
+            onApprove={onApprove}
+            onReject={onReject}
+            onViewDetails={onViewDetails}
           />
         ),
         enableSorting: false,
       },
     ],
-    [cityLookup, onDelete, onEdit]
+    [onApprove, onReject, onViewDetails]
   );
 
   const table = useReactTable({
-    data: filteredRoads,
+    data: filteredRequests,
     columns,
     state: {
       sorting,
@@ -297,6 +278,7 @@ export default function RoadTable({
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
+    manualPagination: false,
   });
 
   const pageCount = table.getPageCount();
@@ -312,78 +294,31 @@ export default function RoadTable({
               setSearchTerm(event.target.value);
               setPagination((prev) => ({ ...prev, pageIndex: 0 }));
             }}
-            placeholder="Search by road name or type"
+            placeholder="Search by name, email, or organization"
             className={FILTER_INPUT_CLASS}
           />
           <Select
-            value={cityFilter}
+            value={statusFilter}
             onValueChange={(value) => {
-              setCityFilter(value);
+              setStatusFilter(value);
               setPagination((prev) => ({ ...prev, pageIndex: 0 }));
             }}
           >
             <SelectTrigger className={SELECT_TRIGGER_CLASS}>
-              <SelectValue placeholder="Filter by city" />
+              <SelectValue placeholder="Filter by status" />
             </SelectTrigger>
             <SelectContent className={SELECT_CONTENT_CLASS}>
               <SelectItem className={SELECT_ITEM_CLASS} value="all">
-                All cities
+                All statuses
               </SelectItem>
-              {uniqueCities.map((city) => (
-                <SelectItem
-                  key={city.id}
-                  value={city.id}
-                  className={SELECT_ITEM_CLASS}
-                >
-                  {city.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select
-            value={roadTypeFilter}
-            onValueChange={(value) => {
-              setRoadTypeFilter(value);
-              setPagination((prev) => ({ ...prev, pageIndex: 0 }));
-            }}
-          >
-            <SelectTrigger className={SELECT_TRIGGER_CLASS}>
-              <SelectValue placeholder="Filter by road type" />
-            </SelectTrigger>
-            <SelectContent className={SELECT_CONTENT_CLASS}>
-              <SelectItem className={SELECT_ITEM_CLASS} value="all">
-                All types
+              <SelectItem className={SELECT_ITEM_CLASS} value="pending">
+                Pending
               </SelectItem>
-              {availableRoadTypes.map((type) => (
-                <SelectItem
-                  key={type}
-                  value={type.toLowerCase()}
-                  className={SELECT_ITEM_CLASS}
-                >
-                  {formatRoadType(type) ?? type}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select
-            value={oneWayFilter}
-            onValueChange={(value) => {
-              setOneWayFilter(value);
-              setPagination((prev) => ({ ...prev, pageIndex: 0 }));
-            }}
-          >
-            <SelectTrigger className={`${SELECT_TRIGGER_CLASS} sm:w-40`}>
-              <SelectValue placeholder="One way" />
-            </SelectTrigger>
-            <SelectContent className={SELECT_CONTENT_CLASS}>
-              <SelectItem className={SELECT_ITEM_CLASS} value="all">
-                All
+              <SelectItem className={SELECT_ITEM_CLASS} value="approved">
+                Approved
               </SelectItem>
-              <SelectItem className={SELECT_ITEM_CLASS} value="yes">
-                One way
-              </SelectItem>
-              <SelectItem className={SELECT_ITEM_CLASS} value="no">
-                Two way
+              <SelectItem className={SELECT_ITEM_CLASS} value="rejected">
+                Rejected
               </SelectItem>
             </SelectContent>
           </Select>
@@ -480,9 +415,9 @@ export default function RoadTable({
               <TableRow>
                 <TableCell
                   colSpan={columns.length}
-                  className="px-4 py-10 text-center text-sm text-slate-400"
+                  className="px-4 py-8 text-center text-sm text-slate-400"
                 >
-                  No roads found.
+                  No collaborator requests found.
                 </TableCell>
               </TableRow>
             )}
@@ -490,9 +425,19 @@ export default function RoadTable({
         </Table>
       </div>
 
-      <div className="flex flex-col items-center justify-between gap-2 text-xs text-slate-400 sm:flex-row">
+      <div className="flex flex-col items-center justify-between gap-3 text-xs text-slate-400 sm:flex-row">
         <span>
-          Page {currentPage} of {pageCount || 1}
+          Showing{" "}
+          {table.getState().pagination.pageIndex *
+            table.getState().pagination.pageSize +
+            1}
+          -
+          {Math.min(
+            (table.getState().pagination.pageIndex + 1) *
+              table.getState().pagination.pageSize,
+            filteredRequests.length
+          )}{" "}
+          of {filteredRequests.length} requests
         </span>
         <div className="flex items-center gap-2">
           <Button
@@ -504,6 +449,9 @@ export default function RoadTable({
           >
             Previous
           </Button>
+          <span>
+            Page {currentPage} of {Math.max(pageCount, 1)}
+          </span>
           <Button
             variant="outline"
             size="sm"

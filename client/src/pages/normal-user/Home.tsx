@@ -30,10 +30,10 @@ export default function Home() {
           <div className="p-4 lg:p-8">
             <header className="text-center my-12 lg:my-24">
               <h1 className="text-4xl lg:text-6xl font-bold text-white">
-                Discover the Golden Land
+                {t("hero.title")}
               </h1>
               <p className="mt-4 text-lg text-gray-300">
-                Your adventure in Myanmar awaits
+                {t("hero.subtitle")}
               </p>
             </header>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">

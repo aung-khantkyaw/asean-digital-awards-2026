@@ -5,6 +5,8 @@ import { initReactI18next } from 'react-i18next';
 // Additional namespaces can be added later.
 import enCommon from './locales/en/common.json';
 import mmCommon from './locales/mm/common.json';
+import enDetails from './locales/en/details.json';
+import mmDetails from './locales/mm/details.json';
 
 const STORAGE_KEY = 'app_language';
 
@@ -20,10 +22,10 @@ i18n
     fallbackLng,
     supportedLngs,
     defaultNS: 'common',
-    ns: ['common'],
+    ns: ['common', 'details'],
     resources: {
-      en: { common: enCommon },
-      mm: { common: mmCommon }
+      en: { common: enCommon, details: enDetails },
+      mm: { common: mmCommon, details: mmDetails }
     },
     interpolation: { escapeValue: false },
     detection: { order: ['localStorage', 'navigator'] },

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Header } from "@/components/header";
@@ -9,6 +10,7 @@ import {
   Route as RouteIcon,
   ShieldCheck,
   UserRound,
+  UserPlus,
 } from "lucide-react";
 
 const API_BASE_URL = import.meta.env.VITE_API_URL ?? "http://127.0.0.1:4000";
@@ -26,7 +28,13 @@ type RouteHistoryItem = {
 };
 
 export default function Profile() {
-  const [user, setUser] = useState({ username: "", email: "" });
+  const navigate = useNavigate();
+  const [user, setUser] = useState({
+    username: "",
+    email: "",
+    user_type: "normal_user",
+    is_admin: false,
+  });
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [routeHistory, setRouteHistory] = useState<RouteHistoryItem[]>([]);
@@ -40,6 +48,8 @@ export default function Profile() {
         setUser({
           username: parsed.username || "",
           email: parsed.email || "",
+          user_type: parsed.user_type || "normal_user",
+          is_admin: parsed.is_admin || false,
         });
       } catch {
         // Ignore JSON parse errors, fallback to default user state
@@ -176,7 +186,7 @@ export default function Profile() {
                 ))}
               </div>
             </div>
-            <div className="relative">
+            <div className="relative space-y-4">
               <div className="absolute -inset-4 rounded-3xl bg-emerald-500/30 blur-3xl opacity-40" />
               <div className="relative flex items-center gap-4 rounded-3xl border border-white/10 bg-white/5 px-6 py-5 backdrop-blur-lg">
                 <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-400/80 to-cyan-500/70 text-slate-950 shadow-lg">
@@ -190,6 +200,31 @@ export default function Profile() {
                   <p className="text-xs text-slate-400">{user.email}</p>
                 </div>
               </div>
+              {user.is_admin ? (
+                <button
+                  onClick={() => navigate("/admin/dashboard")}
+                  className="relative w-full flex items-center justify-center gap-2 rounded-2xl border border-blue-400/30 bg-gradient-to-r from-blue-500/15 via-indigo-500/15 to-violet-600/15 px-6 py-4 text-sm font-semibold text-blue-100 shadow-lg transition hover:border-blue-400/60 hover:bg-blue-500/20 focus:outline-none focus:ring-2 focus:ring-blue-300/40"
+                >
+                  <ShieldCheck className="size-5" />
+                  <span>Go to Admin Dashboard</span>
+                </button>
+              ) : user.user_type === "collaborator" ? (
+                <button
+                  onClick={() => navigate("/collaborator/dashboard")}
+                  className="relative w-full flex items-center justify-center gap-2 rounded-2xl border border-cyan-400/30 bg-gradient-to-r from-cyan-500/15 via-teal-500/15 to-emerald-600/15 px-6 py-4 text-sm font-semibold text-cyan-100 shadow-lg transition hover:border-cyan-400/60 hover:bg-cyan-500/20 focus:outline-none focus:ring-2 focus:ring-cyan-300/40"
+                >
+                  <BadgeCheck className="size-5" />
+                  <span>Go to Collaborator Dashboard</span>
+                </button>
+              ) : (
+                <button
+                  onClick={() => navigate("/collaborator-request")}
+                  className="relative w-full flex items-center justify-center gap-2 rounded-2xl border border-emerald-400/30 bg-gradient-to-r from-emerald-500/15 via-cyan-500/15 to-blue-600/15 px-6 py-4 text-sm font-semibold text-emerald-100 shadow-lg transition hover:border-emerald-400/60 hover:bg-emerald-500/20 focus:outline-none focus:ring-2 focus:ring-emerald-300/40"
+                >
+                  <UserPlus className="size-5" />
+                  <span>Become a Collaborator</span>
+                </button>
+              )}
             </div>
           </section>
 
