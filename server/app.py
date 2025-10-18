@@ -111,6 +111,8 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
 
+print("Upload folder set to:", UPLOAD_FOLDER)
+
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
@@ -131,7 +133,7 @@ def save_uploaded_image(file_storage):
     unique_name = f"{uuid.uuid4().hex}_{safe_name}"
     file_path = os.path.join(app.config['UPLOAD_FOLDER'], unique_name)
     file_storage.save(file_path)
-    return url_for('serve_uploaded_file', filename=unique_name, _external=True)
+    return f"/uploads/{unique_name}"
 
 
 def save_uploaded_images_from_request():
