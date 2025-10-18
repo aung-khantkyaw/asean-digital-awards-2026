@@ -574,6 +574,15 @@ export default function AdminDashboard() {
   const [locationFileInputKey, setLocationFileInputKey] = useState<number>(0);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
+  // Image preview URLs
+  const [cityImagePreviews, setCityImagePreviews] = useState<string[]>([]);
+  const [cityDetailImagePreviews, setCityDetailImagePreviews] = useState<
+    string[]
+  >([]);
+  const [locationImagePreviews, setLocationImagePreviews] = useState<string[]>(
+    []
+  );
+
   // Loading states for form submissions
   const [isCitySubmitting, setIsCitySubmitting] = useState(false);
   const [isCityDetailSubmitting, setIsCityDetailSubmitting] = useState(false);
@@ -1102,6 +1111,51 @@ export default function AdminDashboard() {
     return { coords: { lon, lat } } as const;
   };
 
+  // Helper functions for image preview management
+  const createImagePreview = (file: File): string => {
+    return URL.createObjectURL(file);
+  };
+
+  const revokeImagePreviews = (previews: string[]) => {
+    previews.forEach((url) => {
+      if (url.startsWith("blob:")) {
+        URL.revokeObjectURL(url);
+      }
+    });
+  };
+
+  const getExistingImageUrls = (
+    imageUrls: string | string[] | null
+  ): string[] => {
+    if (!imageUrls) return [];
+    if (Array.isArray(imageUrls)) return imageUrls;
+    try {
+      const parsed = JSON.parse(imageUrls);
+      if (Array.isArray(parsed)) return parsed;
+    } catch {
+      // If not JSON, try splitting by comma
+      if (typeof imageUrls === "string" && imageUrls.trim()) {
+        return imageUrls
+          .split(",")
+          .map((url) => url.trim())
+          .filter(Boolean);
+      }
+    }
+    return [];
+  };
+
+  const formatImageUrl = (url: string): string => {
+    if (
+      url.startsWith("http://") ||
+      url.startsWith("https://") ||
+      url.startsWith("blob:")
+    ) {
+      return url;
+    }
+    // Handle relative paths like /uploads/...
+    return `${API_BASE_URL}${url.startsWith("/") ? url : "/" + url}`;
+  };
+
   async function handleCitySubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const authToken = token;
@@ -1166,6 +1220,11 @@ export default function AdminDashboard() {
             : [data, ...prev]
         );
         toast.success(cityId ? "City updated." : "City created.");
+
+        // Clean up preview URLs
+        revokeImagePreviews(cityImagePreviews);
+        setCityImagePreviews([]);
+
         setCityForm(initialCityForm);
         setCityFileInputKey((prev: number) => prev + 1);
       }
@@ -1179,6 +1238,11 @@ export default function AdminDashboard() {
 
   function handleCityEdit(city: AdminCity) {
     const { lon, lat } = extractPointFromWkt(city.geometry);
+
+    // Clear any existing preview URLs
+    revokeImagePreviews(cityImagePreviews);
+    setCityImagePreviews([]);
+
     setCityForm({
       id: city.id,
       burmese_name: city.name_mm ?? "",
@@ -1287,6 +1351,11 @@ export default function AdminDashboard() {
         toast.success(
           cityDetailId ? "City detail updated." : "City detail created."
         );
+
+        // Clean up preview URLs
+        revokeImagePreviews(cityDetailImagePreviews);
+        setCityDetailImagePreviews([]);
+
         setCityDetailForm(initialCityDetailForm);
         setCityDetailFileInputKey((prev: number) => prev + 1);
       }
@@ -1301,6 +1370,10 @@ export default function AdminDashboard() {
   }
 
   function handleCityDetailEdit(detail: AdminCityDetail) {
+    // Clear any existing preview URLs
+    revokeImagePreviews(cityDetailImagePreviews);
+    setCityDetailImagePreviews([]);
+
     setCityDetailForm({
       id: detail.id,
       city_id: detail.city_id,
@@ -1421,6 +1494,11 @@ export default function AdminDashboard() {
             : [data, ...prev]
         );
         toast.success(locationId ? "Location updated." : "Location created.");
+
+        // Clean up preview URLs
+        revokeImagePreviews(locationImagePreviews);
+        setLocationImagePreviews([]);
+
         setLocationForm(initialLocationForm);
         setLocationFileInputKey((prev: number) => prev + 1);
       }
@@ -1436,6 +1514,11 @@ export default function AdminDashboard() {
 
   function handleLocationEdit(location: AdminLocation) {
     const { lon, lat } = extractPointFromWkt(location.geometry);
+
+    // Clear any existing preview URLs
+    revokeImagePreviews(locationImagePreviews);
+    setLocationImagePreviews([]);
+
     setLocationForm({
       id: location.id,
       city_id: location.city_id ?? "",
@@ -2789,14 +2872,21 @@ export default function AdminDashboard() {
                         type="file"
                         accept="image/*"
                         multiple
-                        onChange={(event) =>
+                        onChange={(event) => {
+                          const files = event.target.files
+                            ? Array.from(event.target.files)
+                            : [];
                           setCityForm((prev) => ({
                             ...prev,
-                            image_files: event.target.files
-                              ? Array.from(event.target.files)
-                              : [],
-                          }))
-                        }
+                            image_files: files,
+                          }));
+
+                          // Create preview URLs for new files
+                          const newPreviews = files.map((file) =>
+                            createImagePreview(file)
+                          );
+                          setCityImagePreviews(newPreviews);
+                        }}
                         className={`${INPUT_BASE_CLASS} file:mr-3 file:rounded-md file:border-0 file:bg-gradient-to-r file:from-emerald-500 file:via-cyan-500 file:to-blue-600 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:brightness-110`}
                       />
                       <p className={FIELD_SUBTEXT_CLASS}>
@@ -2805,6 +2895,125 @@ export default function AdminDashboard() {
                         image.
                       </p>
                     </label>
+
+                    {/* Existing Images (when editing) */}
+                    {cityForm.id &&
+                      cityForm.image_urls &&
+                      getExistingImageUrls(cityForm.image_urls).length > 0 && (
+                        <div className="space-y-2">
+                          <span className="text-sm font-semibold text-slate-200">
+                            Existing Images
+                          </span>
+                          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+                            {getExistingImageUrls(cityForm.image_urls).map(
+                              (url, index) => (
+                                <div
+                                  key={`existing-${index}`}
+                                  className="group relative aspect-square overflow-hidden rounded-lg border border-white/20 bg-slate-950/60"
+                                >
+                                  <img
+                                    src={formatImageUrl(url)}
+                                    alt={`City image ${index + 1}`}
+                                    className="h-full w-full object-cover transition-transform group-hover:scale-110"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const existing = getExistingImageUrls(
+                                        cityForm.image_urls
+                                      );
+                                      const updated = existing.filter(
+                                        (_, i) => i !== index
+                                      );
+                                      setCityForm((prev) => ({
+                                        ...prev,
+                                        image_urls: updated.join(", "),
+                                      }));
+                                    }}
+                                    className="absolute right-1 top-1 rounded-md bg-red-500/90 p-1.5 text-white opacity-0 transition-opacity hover:bg-red-600 group-hover:opacity-100"
+                                    title="Remove image"
+                                  >
+                                    <svg
+                                      className="h-4 w-4"
+                                      fill="none"
+                                      viewBox="0 0 24 24"
+                                      stroke="currentColor"
+                                    >
+                                      <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        strokeWidth={2}
+                                        d="M6 18L18 6M6 6l12 12"
+                                      />
+                                    </svg>
+                                  </button>
+                                </div>
+                              )
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                    {/* New Image Previews */}
+                    {cityImagePreviews.length > 0 && (
+                      <div className="space-y-2">
+                        <span className="text-sm font-semibold text-slate-200">
+                          New Images
+                        </span>
+                        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+                          {cityImagePreviews.map((preview, index) => (
+                            <div
+                              key={`preview-${index}`}
+                              className="group relative aspect-square overflow-hidden rounded-lg border border-emerald-400/30 bg-slate-950/60"
+                            >
+                              <img
+                                src={preview}
+                                alt={`Preview ${index + 1}`}
+                                className="h-full w-full object-cover transition-transform group-hover:scale-110"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const updatedFiles =
+                                    cityForm.image_files.filter(
+                                      (_, i) => i !== index
+                                    );
+                                  const updatedPreviews =
+                                    cityImagePreviews.filter(
+                                      (_, i) => i !== index
+                                    );
+
+                                  // Revoke the URL for the removed preview
+                                  URL.revokeObjectURL(cityImagePreviews[index]);
+
+                                  setCityForm((prev) => ({
+                                    ...prev,
+                                    image_files: updatedFiles,
+                                  }));
+                                  setCityImagePreviews(updatedPreviews);
+                                }}
+                                className="absolute right-1 top-1 rounded-md bg-red-500/90 p-1.5 text-white opacity-0 transition-opacity hover:bg-red-600 group-hover:opacity-100"
+                                title="Remove image"
+                              >
+                                <svg
+                                  className="h-4 w-4"
+                                  fill="none"
+                                  viewBox="0 0 24 24"
+                                  stroke="currentColor"
+                                >
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d="M6 18L18 6M6 6l12 12"
+                                  />
+                                </svg>
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {/* Form Actions */}
@@ -2813,6 +3022,10 @@ export default function AdminDashboard() {
                       <button
                         type="button"
                         onClick={() => {
+                          // Revoke all preview URLs before resetting
+                          revokeImagePreviews(cityImagePreviews);
+                          setCityImagePreviews([]);
+
                           setCityForm(initialCityForm);
                           setCityFileInputKey((prev: number) => prev + 1);
                         }}
@@ -2934,6 +3147,10 @@ export default function AdminDashboard() {
                       <button
                         type="button"
                         onClick={() => {
+                          // Revoke all preview URLs before resetting
+                          revokeImagePreviews(cityDetailImagePreviews);
+                          setCityDetailImagePreviews([]);
+
                           setCityDetailForm(initialCityDetailForm);
                           setCityDetailFileInputKey((prev: number) => prev + 1);
                         }}
@@ -3180,21 +3397,150 @@ export default function AdminDashboard() {
                         type="file"
                         accept="image/*"
                         multiple
-                        onChange={(event) =>
+                        onChange={(event) => {
+                          const files = event.target.files
+                            ? Array.from(event.target.files)
+                            : [];
                           setCityDetailForm((prev) => ({
                             ...prev,
-                            image_files: event.target.files
-                              ? Array.from(event.target.files)
-                              : [],
-                          }))
-                        }
-                        className={`${INPUT_BASE_CLASS} file:mr-3 file:rounded-md file:border-0 file:bg-gradient-to-r file:from-purple-500 file:via-pink-500 file:to-red-500 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:brightness-110`}
+                            image_files: files,
+                          }));
+
+                          // Create preview URLs for new files
+                          const newPreviews = files.map((file) =>
+                            createImagePreview(file)
+                          );
+                          setCityDetailImagePreviews(newPreviews);
+                        }}
+                        className={`${INPUT_BASE_CLASS} file:mr-3 file:rounded-md file:border-0 file:bg-gradient-to-r file:from-purple-500 file:via-pink-500 file:to-red-500 file:px-4 file:py-2 file:text-sm font-semibold file:text-white hover:file:brightness-110`}
                       />
                       <p className={FIELD_SUBTEXT_CLASS}>
                         Upload images related to this content block. These will
                         be displayed alongside the text content.
                       </p>
                     </label>
+
+                    {/* Existing Images (when editing) */}
+                    {cityDetailForm.id &&
+                      cityDetailForm.image_urls &&
+                      getExistingImageUrls(cityDetailForm.image_urls).length >
+                        0 && (
+                        <div className="space-y-2">
+                          <span className="text-sm font-semibold text-slate-200">
+                            Existing Images
+                          </span>
+                          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+                            {getExistingImageUrls(
+                              cityDetailForm.image_urls
+                            ).map((url, index) => (
+                              <div
+                                key={`existing-${index}`}
+                                className="group relative aspect-square overflow-hidden rounded-lg border border-white/20 bg-slate-950/60"
+                              >
+                                <img
+                                  src={formatImageUrl(url)}
+                                  alt={`Detail image ${index + 1}`}
+                                  className="h-full w-full object-cover transition-transform group-hover:scale-110"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const existing = getExistingImageUrls(
+                                      cityDetailForm.image_urls
+                                    );
+                                    const updated = existing.filter(
+                                      (_, i) => i !== index
+                                    );
+                                    setCityDetailForm((prev) => ({
+                                      ...prev,
+                                      image_urls: updated.join(", "),
+                                    }));
+                                  }}
+                                  className="absolute right-1 top-1 rounded-md bg-red-500/90 p-1.5 text-white opacity-0 transition-opacity hover:bg-red-600 group-hover:opacity-100"
+                                  title="Remove image"
+                                >
+                                  <svg
+                                    className="h-4 w-4"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                  >
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth={2}
+                                      d="M6 18L18 6M6 6l12 12"
+                                    />
+                                  </svg>
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                    {/* New Image Previews */}
+                    {cityDetailImagePreviews.length > 0 && (
+                      <div className="space-y-2">
+                        <span className="text-sm font-semibold text-slate-200">
+                          New Images
+                        </span>
+                        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+                          {cityDetailImagePreviews.map((preview, index) => (
+                            <div
+                              key={`preview-${index}`}
+                              className="group relative aspect-square overflow-hidden rounded-lg border border-purple-400/30 bg-slate-950/60"
+                            >
+                              <img
+                                src={preview}
+                                alt={`Preview ${index + 1}`}
+                                className="h-full w-full object-cover transition-transform group-hover:scale-110"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const updatedFiles =
+                                    cityDetailForm.image_files.filter(
+                                      (_, i) => i !== index
+                                    );
+                                  const updatedPreviews =
+                                    cityDetailImagePreviews.filter(
+                                      (_, i) => i !== index
+                                    );
+
+                                  // Revoke the URL for the removed preview
+                                  URL.revokeObjectURL(
+                                    cityDetailImagePreviews[index]
+                                  );
+
+                                  setCityDetailForm((prev) => ({
+                                    ...prev,
+                                    image_files: updatedFiles,
+                                  }));
+                                  setCityDetailImagePreviews(updatedPreviews);
+                                }}
+                                className="absolute right-1 top-1 rounded-md bg-red-500/90 p-1.5 text-white opacity-0 transition-opacity hover:bg-red-600 group-hover:opacity-100"
+                                title="Remove image"
+                              >
+                                <svg
+                                  className="h-4 w-4"
+                                  fill="none"
+                                  viewBox="0 0 24 24"
+                                  stroke="currentColor"
+                                >
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d="M6 18L18 6M6 6l12 12"
+                                  />
+                                </svg>
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {/* Form Actions */}
@@ -3620,14 +3966,21 @@ export default function AdminDashboard() {
                         type="file"
                         accept="image/*"
                         multiple
-                        onChange={(event) =>
+                        onChange={(event) => {
+                          const files = event.target.files
+                            ? Array.from(event.target.files)
+                            : [];
                           setLocationForm((prev) => ({
                             ...prev,
-                            image_files: event.target.files
-                              ? Array.from(event.target.files)
-                              : [],
-                          }))
-                        }
+                            image_files: files,
+                          }));
+
+                          // Create preview URLs for new files
+                          const newPreviews = files.map((file) =>
+                            createImagePreview(file)
+                          );
+                          setLocationImagePreviews(newPreviews);
+                        }}
                         className={`${INPUT_BASE_CLASS} file:mr-3 file:rounded-md file:border-0 file:bg-gradient-to-r file:from-emerald-500 file:via-cyan-500 file:to-blue-600 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:brightness-110`}
                       />
                       <p className={FIELD_SUBTEXT_CLASS}>
@@ -3635,6 +3988,128 @@ export default function AdminDashboard() {
                         uploaded alongside any existing URLs.
                       </p>
                     </label>
+
+                    {/* Existing Images (when editing) */}
+                    {locationForm.id &&
+                      locationForm.image_urls &&
+                      getExistingImageUrls(locationForm.image_urls).length >
+                        0 && (
+                        <div className="space-y-2">
+                          <span className="text-sm font-semibold text-slate-200">
+                            Existing Images
+                          </span>
+                          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+                            {getExistingImageUrls(locationForm.image_urls).map(
+                              (url, index) => (
+                                <div
+                                  key={`existing-${index}`}
+                                  className="group relative aspect-square overflow-hidden rounded-lg border border-white/20 bg-slate-950/60"
+                                >
+                                  <img
+                                    src={formatImageUrl(url)}
+                                    alt={`Location image ${index + 1}`}
+                                    className="h-full w-full object-cover transition-transform group-hover:scale-110"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const existing = getExistingImageUrls(
+                                        locationForm.image_urls
+                                      );
+                                      const updated = existing.filter(
+                                        (_, i) => i !== index
+                                      );
+                                      setLocationForm((prev) => ({
+                                        ...prev,
+                                        image_urls: updated.join(", "),
+                                      }));
+                                    }}
+                                    className="absolute right-1 top-1 rounded-md bg-red-500/90 p-1.5 text-white opacity-0 transition-opacity hover:bg-red-600 group-hover:opacity-100"
+                                    title="Remove image"
+                                  >
+                                    <svg
+                                      className="h-4 w-4"
+                                      fill="none"
+                                      viewBox="0 0 24 24"
+                                      stroke="currentColor"
+                                    >
+                                      <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        strokeWidth={2}
+                                        d="M6 18L18 6M6 6l12 12"
+                                      />
+                                    </svg>
+                                  </button>
+                                </div>
+                              )
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                    {/* New Image Previews */}
+                    {locationImagePreviews.length > 0 && (
+                      <div className="space-y-2">
+                        <span className="text-sm font-semibold text-slate-200">
+                          New Images
+                        </span>
+                        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+                          {locationImagePreviews.map((preview, index) => (
+                            <div
+                              key={`preview-${index}`}
+                              className="group relative aspect-square overflow-hidden rounded-lg border border-blue-400/30 bg-slate-950/60"
+                            >
+                              <img
+                                src={preview}
+                                alt={`Preview ${index + 1}`}
+                                className="h-full w-full object-cover transition-transform group-hover:scale-110"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const updatedFiles =
+                                    locationForm.image_files.filter(
+                                      (_, i) => i !== index
+                                    );
+                                  const updatedPreviews =
+                                    locationImagePreviews.filter(
+                                      (_, i) => i !== index
+                                    );
+
+                                  // Revoke the URL for the removed preview
+                                  URL.revokeObjectURL(
+                                    locationImagePreviews[index]
+                                  );
+
+                                  setLocationForm((prev) => ({
+                                    ...prev,
+                                    image_files: updatedFiles,
+                                  }));
+                                  setLocationImagePreviews(updatedPreviews);
+                                }}
+                                className="absolute right-1 top-1 rounded-md bg-red-500/90 p-1.5 text-white opacity-0 transition-opacity hover:bg-red-600 group-hover:opacity-100"
+                                title="Remove image"
+                              >
+                                <svg
+                                  className="h-4 w-4"
+                                  fill="none"
+                                  viewBox="0 0 24 24"
+                                  stroke="currentColor"
+                                >
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d="M6 18L18 6M6 6l12 12"
+                                  />
+                                </svg>
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                   {/* Form Actions */}
                   <div className="flex justify-end gap-3 border-t border-white/10 pt-6">
@@ -3642,6 +4117,10 @@ export default function AdminDashboard() {
                       <button
                         type="button"
                         onClick={() => {
+                          // Revoke all preview URLs before resetting
+                          revokeImagePreviews(locationImagePreviews);
+                          setLocationImagePreviews([]);
+
                           setLocationForm(initialLocationForm);
                           setLocationFileInputKey((prev: number) => prev + 1);
                         }}

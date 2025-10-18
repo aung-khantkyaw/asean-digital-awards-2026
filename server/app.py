@@ -4004,4 +4004,8 @@ def internal_error(error):
     return jsonify({"is_success": False,"msg": "Internal server error"}), 500
     
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=4000, debug=True)
+    # Development mode - only use for local testing
+    # For production, use: gunicorn -c gunicorn.conf.py app:app
+    port = int(os.environ.get('PORT', 4000))
+    debug = os.environ.get('FLASK_ENV') == 'development'
+    app.run(host='0.0.0.0', port=port, debug=debug)

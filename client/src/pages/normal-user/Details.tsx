@@ -405,7 +405,7 @@ function createGalleryFromUrls(
 ): GalleryImage[] {
   if (!imageUrls?.length) return [];
   return imageUrls.map((src, index) => ({
-    src,
+    src: `${API_BASE_URL}/${src}`,
     alt: `${altPrefix} photo ${index + 1}`,
   }));
 }
@@ -908,10 +908,6 @@ export default function Details() {
     });
   }, [city, activeLanguage]);
 
-  const heroDescription = cityDescriptionText
-    ? cityDescriptionText
-    : `Navigate the scenic waterways, heritage streets, and vibrant markets that define ${displayCityName}.`;
-
   const profileParagraphs = useMemo<string[]>(() => {
     if (!cityDescriptionText) return [];
     return cityDescriptionText
@@ -1114,19 +1110,19 @@ export default function Details() {
           <div className="mt-10 flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
             <div className="space-y-4">
               <h1
-                className={`text-4xl font-bold text-white drop-shadow md:text-5xl ${
+                className={`text-2xl font-bold text-white drop-shadow md:text-4xl ${
                   activeLanguage === "mm" ? "leading-tight" : ""
                 }`}
               >
                 {t("routesIn", { cityName: displayCityName })}
               </h1>
-              <p
+              {/* <p
                 className={`max-w-2xl text-base text-slate-300 md:text-lg ${
                   activeLanguage === "mm" ? "leading-loose" : ""
                 }`}
               >
                 {heroDescription}
-              </p>
+              </p> */}
             </div>
             <div className="flex shrink-0 items-center gap-3">
               <Link
@@ -1674,8 +1670,6 @@ export default function Details() {
               </div>
             </section>
           ) : null}
-
-
         </div>
       </main>
 
