@@ -14,15 +14,19 @@ chmod +x dev.sh
 ./dev.sh
 ```
 
-### Production
+### Production (Linux/Mac/Render Only)
 ```bash
-# Windows
-start.bat
-
 # Linux/Mac
 chmod +x start.sh
 ./start.sh
+
+# On Render - automatic via render.yaml
 ```
+
+**⚠️ Note:** Gunicorn requires a Unix-based system. For Windows production:
+- Deploy to Render.com (recommended)
+- Use WSL (Windows Subsystem for Linux)
+- Use Docker with Linux container
 
 ## Environment Setup
 
@@ -37,12 +41,14 @@ PORT=4000
 
 ## Commands
 
-| Command | Description |
-|---------|-------------|
-| `dev.bat` / `dev.sh` | Start development server with hot reload |
-| `start.bat` / `start.sh` | Start production server with Gunicorn |
-| `python app.py` | Run directly (development only) |
-| `gunicorn -c gunicorn.conf.py app:app` | Run production server |
+| Command | Environment | Description |
+|---------|-------------|-------------|
+| `dev.bat` / `dev.sh` | Development | Start with hot reload |
+| `start.sh` | Production (Linux/Mac) | Start with Gunicorn |
+| `python app.py` | Development | Run directly |
+| `gunicorn -c gunicorn.conf.py app:app` | Production | Run Gunicorn manually |
+
+**Note:** `start.bat` on Windows will show a warning - use `dev.bat` for local development or deploy to Linux.
 
 ## Project Structure
 

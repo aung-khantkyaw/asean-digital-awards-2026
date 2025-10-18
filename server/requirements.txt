@@ -5,4 +5,3 @@ geopy
 psycopg2-binary
 python-dotenv
 gunicorn
-waitress
