@@ -1581,7 +1581,7 @@ function LandmarkMap() {
                         {activeLocationImages.slice(1).map((url, index) => (
                           <img
                             key={`${activeLocation.location.id}-thumb-${index}`}
-                            src={url}
+                            src={`${API_BASE_URL}/${url}`}
                             alt={`${
                               activeLocationNames?.primary ??
                               activeLocation.location.id
