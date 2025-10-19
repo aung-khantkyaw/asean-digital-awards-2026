@@ -598,7 +598,7 @@ function ImageCarousel({
 
   if (!images.length) {
     return (
-      <div className="flex h-40 items-center justify-center rounded-2xl border border-dashed border-white/15 bg-slate-900/40 text-sm text-slate-400">
+      <div className="flex  h-40 items-center justify-center rounded-2xl border border-dashed border-white/15 bg-slate-900/40 text-sm text-slate-400">
         Photo gallery coming soon.
       </div>
     );
@@ -608,19 +608,20 @@ function ImageCarousel({
     <div className="relative group">
       <div
         ref={scrollRef}
-        className="flex gap-3 overflow-x-auto rounded-2xl border border-white/10 bg-slate-900/40 p-2 scroll-smooth"
+        className="flex gap-3 overflow-x-hidden rounded-2xl border border-white/10 bg-slate-900/40 p-2 scroll-smooth"
+        style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
       >
         {images.map((image, index) => (
           <button
             key={`${altPrefix}-${index}`}
             type="button"
             onClick={() => onImageClick?.(index)}
-            className="relative w-[220px] flex-shrink-0 overflow-hidden rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-400"
+            className="relative w-64 flex-shrink-0 overflow-hidden rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-400"
           >
             <img
               src={image.src}
               alt={image.alt}
-              className="h-40 w-full object-cover transition-transform duration-500 hover:scale-105"
+              className="h-40 w-64 object-cover transition-transform duration-500 hover:scale-105"
               loading="lazy"
             />
           </button>
@@ -630,7 +631,7 @@ function ImageCarousel({
         <>
           <button
             type="button"
-            className="absolute left-3 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80"
+            className="absolute left-3 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 opacity-0 group-hover:opacity-100"
             onClick={() => scrollBy("left")}
             aria-label="Scroll images left"
           >
@@ -638,7 +639,7 @@ function ImageCarousel({
           </button>
           <button
             type="button"
-            className="absolute right-3 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80"
+            className="absolute right-3 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 opacity-0 group-hover:opacity-100"
             onClick={() => scrollBy("right")}
             aria-label="Scroll images right"
           >
@@ -1508,11 +1509,18 @@ export default function Details() {
                                   onClick={() =>
                                     openModal(locationName, locationGallery, 0)
                                   }
-                                  className="flex items-center gap-2 rounded-full border border-white/20 px-3 py-1.5 text-xs text-slate-100 transition hover:border-blue-400/60 hover:text-white"
+                                  className="flex items-center gap-2 rounded-full border border-white/20 bg-white/5 px-3 py-1.5 text-xs text-slate-100 transition hover:border-blue-400/60 hover:bg-blue-500/10 hover:text-white"
                                 >
                                   <Camera className="h-3 w-3" />
-                                  View
+                                  View Photos
                                 </button>
+                                <Link
+                                  to={`/landmark-map/${city.id}?location=${location.id}`}
+                                  className="flex items-center gap-2 rounded-full border border-blue-400/30 bg-blue-500/10 px-3 py-1.5 text-xs text-blue-200 transition hover:border-blue-400/60 hover:bg-blue-500/20"
+                                >
+                                  <Navigation className="h-3 w-3" />
+                                  View on Map
+                                </Link>
                               </div>
                             </div>
                           </article>
@@ -1640,11 +1648,6 @@ export default function Details() {
                             >
                               {location.description}
                             </p>
-                            {location.category && (
-                              <p className="mt-2 text-xs text-slate-400">
-                                {t(`categories.${location.category}`)}
-                              </p>
-                            )}
                           </div>
                           <div className="flex flex-wrap gap-3">
                             <button
@@ -1657,13 +1660,13 @@ export default function Details() {
                               <Camera className="h-4 w-4" />
                               {t("common.openGallery", "Open gallery")}
                             </button>
-                            <button
-                              type="button"
-                              className="inline-flex items-center gap-2 rounded-full border border-white/20 px-4 py-2 text-sm text-slate-100 transition hover:border-blue-300/60 hover:text-white"
+                            <Link
+                              to={`/landmark-map/${city.id}?location=${location.id}`}
+                              className="inline-flex items-center gap-2 rounded-full border border-white/20 px-4 py-2 text-sm text-slate-100 transition hover:border-blue-400/60 hover:bg-blue-500/10 hover:text-white"
                             >
                               <Navigation className="h-4 w-4" />
-                              {t("common.viewDetails", "View details")}
-                            </button>
+                              {t("common.viewOnMap", "View on Map")}
+                            </Link>
                           </div>
                         </div>
                       </div>
@@ -1715,7 +1718,7 @@ export default function Details() {
               <div className="flex min-h-[320px] items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-black/40">
                 {activeModalImage ? (
                   <img
-                    src={activeModalImage.src}
+                    src={formatImageUrl(activeModalImage.src)}
                     alt={activeModalImage.alt}
                     className="max-h-[480px] w-full object-contain"
                   />
@@ -1740,7 +1743,7 @@ export default function Details() {
                     >
                       <span className="h-20 w-28 overflow-hidden rounded-xl">
                         <img
-                          src={image.src}
+                          src={formatImageUrl(image.src)}
                           alt={image.alt}
                           className="h-full w-full object-cover"
                         />

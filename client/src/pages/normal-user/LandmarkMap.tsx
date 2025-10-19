@@ -12,7 +12,7 @@ import {
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import type { LatLngTuple } from "leaflet";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import markerIcon2x from "leaflet/dist/images/marker-icon-2x.png";
 import markerIcon from "leaflet/dist/images/marker-icon.png";
@@ -518,6 +518,8 @@ function MapFocus({
 function LandmarkMap() {
   const navigate = useNavigate();
   const { cityId } = useParams<{ cityId?: string }>();
+  const [searchParams] = useSearchParams();
+  const locationIdFromUrl = searchParams.get("location");
   const [cities, setCities] = useState<City[]>([]);
   const [selectedCity, setSelectedCity] = useState<City | null>(null);
   const [cityLocations, setCityLocations] = useState<CityLocation[]>([]);
@@ -535,6 +537,10 @@ function LandmarkMap() {
     locationId: string;
   } | null>(null);
   const [baseLayerKey, setBaseLayerKey] = useState<BaseLayerKey>("imagery");
+  const [mapFocusPosition, setMapFocusPosition] = useState<LatLngTuple | null>(
+    null
+  );
+  const [mapFocusZoom, setMapFocusZoom] = useState(13);
 
   const { i18n } = useTranslation();
   const activeLanguage = i18n.resolvedLanguage ?? i18n.language ?? "en";
@@ -849,6 +855,46 @@ function LandmarkMap() {
       .filter((entry): entry is LocationEntry => entry !== null);
   }, [cityLocations, getLocalizedText]);
 
+  // Handle location from URL query parameter
+  useEffect(() => {
+    if (!locationIdFromUrl || !locationEntries.length) return;
+
+    const locationEntry = locationEntries.find(
+      ({ location }) => location.id === locationIdFromUrl
+    );
+
+    if (locationEntry) {
+      // Set the location as active
+      setActiveLocationId(locationIdFromUrl);
+
+      // Center map on the location with higher zoom for detail view
+      setMapFocusPosition(locationEntry.position);
+      setMapFocusZoom(16);
+
+      // Clear the query parameter after handling it
+      const newSearchParams = new URLSearchParams(searchParams);
+      newSearchParams.delete("location");
+      navigate(
+        {
+          pathname: `/landmark-map/${cityId}`,
+          search: newSearchParams.toString(),
+        },
+        { replace: true }
+      );
+    }
+  }, [locationIdFromUrl, locationEntries, cityId, navigate, searchParams]);
+
+  // Reset map focus position after it's been applied
+  useEffect(() => {
+    if (mapFocusPosition) {
+      const timer = setTimeout(() => {
+        setMapFocusPosition(null);
+        setMapFocusZoom(13);
+      }, 1000); // Clear after animation completes
+      return () => clearTimeout(timer);
+    }
+  }, [mapFocusPosition]);
+
   const categoryCounts = useMemo(() => {
     const base = Object.keys(LOCATION_CATEGORIES).reduce(
       (acc, key) => {
@@ -1054,8 +1100,14 @@ function LandmarkMap() {
   const hasRoute = routePolyline.length > 1;
 
   const mapCenter =
-    activeLocationPosition ?? activePosition ?? userPosition ?? DEFAULT_CENTER;
-  const mapZoom = activeLocationPosition
+    mapFocusPosition ??
+    activeLocationPosition ??
+    activePosition ??
+    userPosition ??
+    DEFAULT_CENTER;
+  const mapZoom = mapFocusPosition
+    ? mapFocusZoom
+    : activeLocationPosition
     ? LOCATION_ZOOM
     : activePosition
     ? SELECTED_ZOOM

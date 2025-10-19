@@ -43,7 +43,7 @@
   },
   "footer": {
     "badge": "Plan smarter",
-    "title": "Myanmar Travel Explorer",
+    "title": "Myanmar Explorer",
     "tagline": "Plan smarter journeys across Myanmar with history, highlights, and intelligent routing.",
     "linksTitle": "Quick links",
     "links": {
@@ -53,10 +53,10 @@
     },
     "supportTitle": "Need help?",
     "support": {
-      "email": "hello@myanmar-travel.explore",
+      "email": "aungkhantkyaw.info@gmail.com",
       "center": "Visit the help center"
     },
     "status": "Always exploring new paths together.",
-    "copyright": "Myanmar Travel Explorer"
+    "copyright": "Myanmar Explorer"
   }
 }

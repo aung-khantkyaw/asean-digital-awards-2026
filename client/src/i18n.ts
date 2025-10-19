@@ -7,6 +7,8 @@ import enCommon from './locales/en/common.json';
 import mmCommon from './locales/mm/common.json';
 import enDetails from './locales/en/details.json';
 import mmDetails from './locales/mm/details.json';
+import enHome from './locales/en/home.json';
+import mmHome from './locales/mm/home.json';
 
 const STORAGE_KEY = 'app_language';
 
@@ -22,10 +24,10 @@ i18n
     fallbackLng,
     supportedLngs,
     defaultNS: 'common',
-    ns: ['common', 'details'],
+    ns: ['common', 'details', 'home'],
     resources: {
-      en: { common: enCommon, details: enDetails },
-      mm: { common: mmCommon, details: mmDetails }
+      en: { common: enCommon, details: enDetails, home: enHome },
+      mm: { common: mmCommon, details: mmDetails, home: mmHome }
     },
     interpolation: { escapeValue: false },
     detection: { order: ['localStorage', 'navigator'] },

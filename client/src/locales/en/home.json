@@ -1,0 +1,25 @@
+{
+  "map": {
+    "title": "Explore the Map",
+    "description": "Hover over the markers to learn more about each destination."
+  },
+  "history": {
+    "title": "A Glimpse into Myanmar's History",
+    "intro": "Myanmar, formerly known as Burma, is a country rich in history and culture. It has been home to several ancient civilizations, with the Pyu city-states dating back to the 2nd century BCE. The Bagan Empire, which flourished from the 9th to the 13th centuries, left behind thousands of temples and pagodas that still stand today as a testament to its architectural prowess. The country later became a British colony in the 19th century, gaining independence in 1948.",
+    "bagan": {
+      "title": "The Bagan Empire (849–1297)",
+      "description": "Famed for the thousands of temples in the Bagan Archaeological Zone."
+    },
+    "konbaung": {
+      "title": "Konbaung Dynasty (1752-1885)",
+      "description": "The last ruling dynasty, with its capital in the magnificent Mandalay."
+    },
+    "colonial": {
+      "title": "British Colonial Era (1885-1948)",
+      "description": "A period of significant change, leaving a lasting architectural legacy."
+    }
+  },
+  "cta": {
+    "button": "Start Your Journey"
+  }
+}
