@@ -145,6 +145,18 @@ type CityLocation = {
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+function formatImageUrl(src: string | null | undefined): string {
+  if (!src) return "";
+  const trimmedSrc = src.trim();
+  // If it's already a full URL, return it as is.
+  if (trimmedSrc.startsWith("http://") || trimmedSrc.startsWith("https://")) {
+    return trimmedSrc;
+  }
+  // If it's a relative path, combine it with the base URL.
+  // This handles both '/uploads/...' and 'uploads/...'
+  return `${API_BASE_URL.replace(/\/$/, "")}/${trimmedSrc.replace(/^\//, "")}`;
+}
+
 const PREDEFINED_TITLE_OPTIONS = [
   {
     value: "introduction_and_history",
@@ -405,7 +417,7 @@ function createGalleryFromUrls(
 ): GalleryImage[] {
   if (!imageUrls?.length) return [];
   return imageUrls.map((src, index) => ({
-    src: `${API_BASE_URL}/${src}`,
+    src: formatImageUrl(src),
     alt: `${altPrefix} photo ${index + 1}`,
   }));
 }
